@@ -101,11 +101,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--rey);box
 #toast.error{background:var(--rojo)}
 
 /* Desplegables */
-details.grupo{border:1px solid var(--borde);border-radius:12px;margin-bottom:10px;background:#fff;overflow:hidden}
-details.grupo>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:13px 16px;font-weight:800;font-size:17px;background:var(--rey-claro);color:var(--rey-osc)}
+details.grupo{border:1px solid var(--borde);border-radius:12px;margin-bottom:10px;background:#fff}
+details.grupo>summary{border-radius:11px;list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:13px 16px;font-weight:800;font-size:17px;background:var(--rey-claro);color:var(--rey-osc)}
 details.grupo>summary::-webkit-details-marker{display:none}
 details.grupo>summary .flecha{transition:.15s;margin-right:8px}
 details.grupo[open]>summary .flecha{transform:rotate(90deg)}
+details.grupo[open]>summary{border-radius:11px 11px 0 0}
 details.grupo .cuerpo{padding:12px 16px}
 
 /* Login */

@@ -23,6 +23,7 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
   const proc = id => D.procesos.find(p => p.id === id);
   const opsDe = pid => D.ops.filter(o => o.proceso_id === pid);
   const abiertos = new Set(['confeccion']);
+  const filtros = {};
 
   if (seleccion) seleccion.forEach(s => sel.set(s.operacion_id, Number(s.cantidad)));
   else {
@@ -77,14 +78,22 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
         <input class="cant" data-op="${o.id}" inputmode="numeric" style="width:90px;text-align:right" value="${sel.get(o.id) || ''}" placeholder="0">
         <b style="min-width:80px;text-align:right">${pesos(sel.has(o.id) ? o.precio * sel.get(o.id) : 0)}</b></span></div>`).join('');
     } else {
-      const elegidas = ops.filter(o => sel.has(o.id));
-      cuerpo = `<div class="buscador" style="margin-bottom:10px"><i class="ti ti-search"></i><input class="busca-op" data-proc="${p.id}" placeholder="Buscar operación de ${esc(p.nombre)} para agregar"></div>
-        ${elegidas.length ? `<table class="tabla"><thead><tr><th>Operación</th><th class="num">Valor</th><th class="num" style="width:110px">Cantidad</th><th class="num">Subtotal</th><th></th></tr></thead><tbody>
-        ${elegidas.map(o => `<tr><td>${esc(o.nombre)}</td><td class="num">${pesos(o.precio)}</td>
-          <td class="num"><input class="cant" data-op="${o.id}" inputmode="numeric" style="width:80px;text-align:right" value="${sel.get(o.id)}"></td>
-          <td class="num"><b>${pesos(o.precio * sel.get(o.id))}</b></td>
-          <td><button class="icono-btn borrar" data-quitar="${o.id}"><i class="ti ti-x"></i></button></td></tr>`).join('')}</tbody></table>`
-        : '<div class="muted">Busca y agrega las operaciones que lleva esta referencia.</div>'}`;
+      // Tabla completa: las marcadas arriba, luego el resto. El buscador solo filtra la tabla.
+      const filtro = normalizar(filtros[p.id] || '');
+      const orden = [...ops.filter(o => sel.has(o.id)), ...ops.filter(o => !sel.has(o.id))];
+      const visibles = orden.filter(o => sel.has(o.id) || !filtro || normalizar(o.nombre).includes(filtro));
+      const n = ops.filter(o => sel.has(o.id)).length;
+      cuerpo = `<div class="entre" style="margin-bottom:10px">
+          <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input class="filtra-op" data-proc="${p.id}" value="${esc(filtros[p.id] || '')}" placeholder="Filtrar operaciones de ${esc(p.nombre)}"></div>
+          <span class="muted">${n} ${n === 1 ? 'marcada' : 'marcadas'}</span></div>
+        <table class="tabla"><thead><tr><th style="width:44px"></th><th>Operación</th><th class="num">Valor</th><th class="num" style="width:110px">Cantidad</th><th class="num">Subtotal</th></tr></thead><tbody>
+        ${visibles.map(o => { const si = sel.has(o.id); return `<tr style="${si ? 'background:var(--rey-claro)' : ''}">
+          <td><button class="icono-btn" data-marca="${o.id}" title="${si ? 'Quitar' : 'Agregar'}" style="color:${si ? 'var(--rey)' : 'var(--texto2)'};font-size:22px"><i class="ti ${si ? 'ti-square-check' : 'ti-square'}"></i></button></td>
+          <td style="cursor:pointer" data-marca="${o.id}">${si ? '<b>' + esc(o.nombre) + '</b>' : esc(o.nombre)}</td>
+          <td class="num">${pesos(o.precio)}</td>
+          <td class="num">${si ? `<input class="cant" data-op="${o.id}" inputmode="numeric" style="width:80px;text-align:right" value="${sel.get(o.id)}">` : ''}</td>
+          <td class="num">${si ? `<b>${pesos(o.precio * sel.get(o.id))}</b>` : ''}</td></tr>`; }).join('')}
+        </tbody></table>`;
     }
     return `<details class="grupo" data-k="p${p.id}" ${abierto} style="margin-bottom:8px">
       <summary style="background:#fff;font-size:16px"><span><i class="ti ti-chevron-right flecha"></i>${esc(p.nombre)}</span><span>${pesos(subtotal(p.id))}</span></summary>
@@ -119,19 +128,21 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
       v > 0 ? sel.set(oid, v) : sel.delete(oid);
       pintar();
     });
-    cont.querySelectorAll('[data-quitar]').forEach(b => b.onclick = () => { sel.delete(Number(b.dataset.quitar)); pintar(); });
-    cont.querySelectorAll('input.busca-op').forEach(inp => {
-      const pid = Number(inp.dataset.proc);
-      buscador(inp, async txt => {
-        const t = normalizar(txt);
-        return opsDe(pid).filter(o => !sel.has(o.id) && (!t || normalizar(o.nombre).includes(t)))
-          .slice(0, 40).map(o => ({ id: o.id, texto: o.nombre, extra: pesos(o.precio) }));
-      }, it => {
-        sel.set(it.id, 1);
+    cont.querySelectorAll('[data-marca]').forEach(b => b.onclick = () => {
+      const oid = Number(b.dataset.marca);
+      if (sel.has(oid)) { sel.delete(oid); pintar(); return; }
+      sel.set(oid, 1); pintar();
+      const nuevo = cont.querySelector(`input.cant[data-op="${oid}"]`);
+      if (nuevo) { nuevo.focus(); nuevo.select(); }
+    });
+    cont.querySelectorAll('input.filtra-op').forEach(inp => {
+      inp.oninput = () => {
+        filtros[inp.dataset.proc] = inp.value;
+        const pos = inp.selectionStart;
         pintar();
-        const nuevo = cont.querySelector(`input.cant[data-op="${it.id}"]`);
-        if (nuevo) { nuevo.focus(); nuevo.select(); }
-      });
+        const nuevo = cont.querySelector(`input.filtra-op[data-proc="${inp.dataset.proc}"]`);
+        if (nuevo) { nuevo.focus(); nuevo.setSelectionRange(pos, pos); }
+      };
     });
   }
 
