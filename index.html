@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGLO OS — Ingresar</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="login-fondo">
+  <form class="login" id="form">
+    <div class="logo">M</div>
+    <h1>MAGLO OS</h1>
+    <p>Ingresa con tu correo y clave</p>
+    <div class="campo"><label for="email">Correo</label><input id="email" type="email" autocomplete="username" required></div>
+    <div class="campo"><label for="clave">Clave</label><input id="clave" type="password" autocomplete="current-password" required></div>
+    <div id="error" class="aviso rojo oculto"></div>
+    <button class="btn" id="btn" type="submit"><i class="ti ti-login"></i> Entrar</button>
+  </form>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  const err = document.getElementById('error');
+  if (location.search.includes('inactivo')) { err.textContent = 'Tu usuario está desactivado. Habla con la administradora.'; err.classList.remove('oculto'); }
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && !location.search.includes('inactivo')) location.href = 'panel.html';
+  document.getElementById('form').onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('btn');
+    btn.disabled = true; err.classList.add('oculto');
+    const { error } = await sb.auth.signInWithPassword({
+      email: document.getElementById('email').value.trim().toLowerCase(),
+      password: document.getElementById('clave').value
+    });
+    btn.disabled = false;
+    if (error) {
+      err.textContent = /invalid/i.test(error.message) ? 'Correo o clave incorrectos' : error.message;
+      err.classList.remove('oculto');
+      return;
+    }
+    location.href = 'panel.html';
+  };
+})();
+</script>
+</body>
+</html>

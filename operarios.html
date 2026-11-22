@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operarios — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Operarios</h1></div>
+  <div class="card">
+    <div class="entre" style="margin-bottom:14px">
+      <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar por nombre o cédula"></div>
+      <button class="btn" id="btnNuevo"><i class="ti ti-plus"></i> Nuevo operario</button>
+    </div>
+    <table class="tabla">
+      <thead><tr><th>Nombre</th><th>Cédula</th><th>Se le paga</th><th>Cómo se le paga</th><th></th></tr></thead>
+      <tbody id="lista"></tbody>
+    </table>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+let OPS = [], VALOR_HORA = 8000;
+async function cargar() {
+  const { data, error } = await sb.from('operarios').select('*').eq('activo', true).order('nombre');
+  if (error) return aviso(mensajeError(error), true);
+  OPS = data; pintar();
+}
+function pintar() {
+  const f = normalizar(document.getElementById('filtro').value);
+  const filas = OPS.filter(o => normalizar(o.nombre).includes(f) || String(o.cedula || '').includes(f));
+  document.getElementById('lista').innerHTML = filas.length ? filas.map(o => `
+    <tr><td><b>${esc(o.nombre)}</b><div class="muted">${esc(o.celular || '')}</div></td>
+    <td>${esc(o.cedula)}</td>
+    <td>${o.tipo_pago === 'horas' ? `<span class="chip cel">Por horas · ${pesos(o.valor_hora)}</span>` : '<span class="chip">Por producción</span>'}</td>
+    <td>${o.forma_pago === 'efectivo' ? '<span class="chip gris">Efectivo</span>' : `${esc(o.banco || '')} ${esc(o.tipo_cuenta || '')}<div class="muted">${esc(o.numero_cuenta || '')}</div>`}</td>
+    <td class="num"><button class="icono-btn" title="Editar" onclick="editar(${o.id})"><i class="ti ti-pencil"></i></button>
+    <button class="icono-btn borrar" title="Quitar" onclick="quitar(${o.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('')
+    : `<tr><td colspan="5" class="vacio">Todavía no hay operarios. Crea el primero con "Nuevo operario".</td></tr>`;
+}
+function editar(id) {
+  const o = OPS.find(x => x.id === id) || { tipo_pago: 'produccion', forma_pago: 'cuenta', valor_hora: VALOR_HORA };
+  let tipo = o.tipo_pago, forma = o.forma_pago;
+  const m = abrirModal(id ? 'Editar operario' : 'Nuevo operario', `
+    <div class="fila"><div><label>Nombre completo</label><input id="oNombre" value="${esc(o.nombre)}"></div>
+    <div><label>Cédula</label><input id="oCedula" inputmode="numeric" value="${esc(o.cedula)}"></div></div>
+    <div class="campo"><label>Celular</label><input id="oCel" inputmode="tel" value="${esc(o.celular)}"></div>
+    <label>¿Cómo se le paga el trabajo?</label>
+    <div class="opciones campo" id="oTipo">
+      <div class="opcion" data-v="produccion"><i class="ti ti-shirt"></i> Por producción<small>Por cada prenda que hace</small></div>
+      <div class="opcion" data-v="horas"><i class="ti ti-clock"></i> Por horas<small>Por las horas trabajadas</small></div>
+    </div>
+    <div class="campo" id="oHoraBox"><label>Valor de la hora</label><input id="oHora" inputmode="numeric" value="${o.valor_hora ? numero(o.valor_hora) : ''}"></div>
+    <label>¿Cómo se le entrega la plata?</label>
+    <div class="opciones campo" id="oForma">
+      <div class="opcion" data-v="cuenta"><i class="ti ti-building-bank"></i> Consignación</div>
+      <div class="opcion" data-v="efectivo"><i class="ti ti-cash"></i> Efectivo</div>
+    </div>
+    <div id="oCuentaBox"><div class="fila">
+      <div><label>Banco</label><input id="oBanco" list="bancos" value="${esc(o.banco)}"></div>
+      <div><label>Tipo de cuenta</label><select id="oTipoCta">${['Ahorros','Corriente','Nequi','Daviplata','Otra'].map(t => `<option ${o.tipo_cuenta === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+      <div class="campo"><label>Número de cuenta</label><input id="oNumCta" inputmode="numeric" value="${esc(o.numero_cuenta)}"></div></div>
+    <datalist id="bancos">${['Bancolombia','Davivienda','Banco de Bogotá','BBVA','Banco Caja Social','Banco Popular','Banco de Occidente','AV Villas','Nequi','Daviplata','Banco Agrario','Colpatria'].map(b => `<option>${b}</option>`).join('')}</datalist>
+    <div id="oErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="oGuardar"><i class="ti ti-device-floppy"></i> Guardar</button></div>`);
+  const refrescar = () => {
+    m.querySelectorAll('#oTipo .opcion').forEach(x => x.classList.toggle('sel', x.dataset.v === tipo));
+    m.querySelectorAll('#oForma .opcion').forEach(x => x.classList.toggle('sel', x.dataset.v === forma));
+    m.querySelector('#oHoraBox').classList.toggle('oculto', tipo !== 'horas');
+    m.querySelector('#oCuentaBox').classList.toggle('oculto', forma !== 'cuenta');
+  };
+  m.querySelectorAll('#oTipo .opcion').forEach(x => x.onclick = () => { tipo = x.dataset.v; refrescar(); });
+  m.querySelectorAll('#oForma .opcion').forEach(x => x.onclick = () => { forma = x.dataset.v; refrescar(); });
+  refrescar();
+  m.querySelector('#oGuardar').onclick = async () => {
+    const reg = {
+      nombre: capitalizar(m.querySelector('#oNombre').value),
+      cedula: m.querySelector('#oCedula').value.trim() || null,
+      celular: m.querySelector('#oCel').value.trim() || null,
+      tipo_pago: tipo,
+      valor_hora: tipo === 'horas' ? leerNumero(m.querySelector('#oHora').value) || null : null,
+      forma_pago: forma,
+      banco: forma === 'cuenta' ? (m.querySelector('#oBanco').value.trim() || null) : null,
+      tipo_cuenta: forma === 'cuenta' ? m.querySelector('#oTipoCta').value : null,
+      numero_cuenta: forma === 'cuenta' ? (m.querySelector('#oNumCta').value.trim() || null) : null,
+    };
+    const err = m.querySelector('#oErr');
+    if (!reg.nombre) return (err.textContent = 'Escribe el nombre');
+    if (tipo === 'horas' && !reg.valor_hora) return (err.textContent = 'Escribe el valor de la hora');
+    const { error } = id ? await sb.from('operarios').update(reg).eq('id', id) : await sb.from('operarios').insert(reg);
+    if (error) return (err.textContent = mensajeError(error));
+    cerrarModal(); aviso('Operario guardado'); cargar();
+  };
+}
+async function quitar(id) {
+  const o = OPS.find(x => x.id === id);
+  if (!confirm(`¿Quitar a ${o.nombre}? Su historial de nómina se conserva.`)) return;
+  const { error } = await sb.from('operarios').update({ activo: false }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Operario quitado'); cargar();
+}
+(async () => {
+  if (!await iniciarModulo('operarios')) return;
+  const { data } = await sb.from('configuracion').select('valor').eq('clave', 'valor_hora_terminacion').maybeSingle();
+  if (data) VALOR_HORA = Number(data.valor);
+  document.getElementById('btnNuevo').onclick = () => editar(0);
+  document.getElementById('filtro').oninput = pintar;
+  cargar();
+})();
+</script>
+</body>
+</html>

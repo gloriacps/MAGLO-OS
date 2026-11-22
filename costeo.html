@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Costeo — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html" id="volver"><i class="ti ti-arrow-left"></i> Inicio</a><h1 id="titulo">Costeo</h1></div>
+
+  <section id="vistaLista">
+    <div class="aviso cel">Costea una referencia aunque todavía no te hayan mandado el lote. Cuando llegue la orden con esa referencia, el costeo se trae solo.</div>
+    <div class="card">
+      <div class="entre" style="margin-bottom:14px">
+        <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar por referencia, prenda o marca"></div>
+        <button class="btn" id="btnNuevo"><i class="ti ti-plus"></i> Nuevo costeo</button>
+      </div>
+      <table class="tabla"><thead><tr><th>Referencia</th><th>Prenda</th><th>Marca</th><th class="num">Debería cobrar</th><th></th></tr></thead><tbody id="lista"></tbody></table>
+    </div>
+  </section>
+
+  <section id="vistaEditor" class="oculto">
+    <div class="card">
+      <div class="fila">
+        <div><label>Marca (cliente)</label><select id="eCliente"><option value="">Todavía no sé</option></select></div>
+        <div><label>Referencia</label><input id="eRef" placeholder="1020"></div>
+        <div><label>Nombre de la prenda</label><input id="ePrenda" placeholder="Jean blanco tiro alto"></div>
+      </div>
+    </div>
+    <div id="editor"></div>
+    <div class="derecha" style="margin-top:16px">
+      <button class="btn sec" id="btnCancelar">Volver</button>
+      <button class="btn" id="btnGuardar"><i class="ti ti-device-floppy"></i> Guardar costeo</button>
+    </div>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/costeo.js"></script>
+<script>
+let D = null, CLIENTES = [], COSTEOS = [], ED = null, ACTUAL = null;
+
+async function cargarLista() {
+  const { data, error } = await sb.from('costeos').select('*, clientes(nombre), costeo_operaciones(operacion_id, cantidad)').is('orden_id', null).order('updated_at', { ascending: false });
+  if (error) return aviso(mensajeError(error), true);
+  COSTEOS = data; pintarLista();
+}
+function deberiaDe(c) {
+  const div = document.createElement('div');
+  return crearEditorCosteo(div, D, c.costeo_operaciones).deberia();
+}
+function pintarLista() {
+  const f = normalizar(document.getElementById('filtro').value);
+  const filas = COSTEOS.filter(c => !f || normalizar(`${c.referencia} ${c.nombre_prenda} ${c.clientes?.nombre}`).includes(f));
+  document.getElementById('lista').innerHTML = filas.length ? filas.map(c => `
+    <tr style="cursor:pointer" onclick="abrir(${c.id})"><td><b>${esc(c.referencia || 'Sin referencia')}</b></td><td>${esc(c.nombre_prenda)}</td>
+    <td>${c.clientes ? esc(c.clientes.nombre) : '<span class="muted">Sin marca</span>'}</td>
+    <td class="num"><b>${pesos(deberiaDe(c))}</b></td>
+    <td class="num"><button class="icono-btn borrar" title="Borrar" onclick="event.stopPropagation();borrar(${c.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('')
+    : `<tr><td colspan="5" class="vacio">No hay costeos guardados todavía.</td></tr>`;
+}
+function verLista() {
+  document.getElementById('vistaLista').classList.remove('oculto');
+  document.getElementById('vistaEditor').classList.add('oculto');
+  document.getElementById('titulo').textContent = 'Costeo';
+  history.replaceState(null, '', 'costeo.html');
+  cargarLista();
+}
+function abrir(id) {
+  ACTUAL = id ? COSTEOS.find(c => c.id === id) : null;
+  document.getElementById('vistaLista').classList.add('oculto');
+  document.getElementById('vistaEditor').classList.remove('oculto');
+  document.getElementById('titulo').textContent = ACTUAL ? `Costeo ref. ${ACTUAL.referencia || ''}` : 'Nuevo costeo';
+  document.getElementById('eCliente').value = ACTUAL?.cliente_id || '';
+  document.getElementById('eRef').value = ACTUAL?.referencia || '';
+  document.getElementById('ePrenda').value = ACTUAL?.nombre_prenda || '';
+  ED = crearEditorCosteo(document.getElementById('editor'), D, ACTUAL ? ACTUAL.costeo_operaciones : null);
+  window.scrollTo(0, 0);
+}
+async function guardar() {
+  const reg = {
+    cliente_id: Number(document.getElementById('eCliente').value) || null,
+    referencia: document.getElementById('eRef').value.trim() || null,
+    nombre_prenda: capitalizar(document.getElementById('ePrenda').value) || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (!reg.referencia && !reg.nombre_prenda) return aviso('Escribe al menos la referencia o el nombre de la prenda', true);
+  const repetido = COSTEOS.find(c => c.id !== ACTUAL?.id && reg.referencia && normalizar(c.referencia) === normalizar(reg.referencia) && (c.cliente_id || null) === reg.cliente_id);
+  if (repetido) return aviso('Ya hay un costeo guardado con esa referencia para esa marca', true);
+  const btn = document.getElementById('btnGuardar'); btn.disabled = true;
+  try {
+    let id = ACTUAL?.id;
+    if (id) { const { error } = await sb.from('costeos').update(reg).eq('id', id); if (error) throw error; }
+    else { const { data, error } = await sb.from('costeos').insert(reg).select('id').single(); if (error) throw error; id = data.id; }
+    await guardarSeleccionCosteo(id, ED.seleccion());
+    aviso('Costeo guardado'); verLista();
+  } catch (e) { aviso(mensajeError(e), true); }
+  btn.disabled = false;
+}
+async function borrar(id) {
+  const c = COSTEOS.find(x => x.id === id);
+  if (!confirm(`¿Borrar el costeo de la referencia ${c.referencia || ''}? Las órdenes que ya lo usaron no se afectan.`)) return;
+  const { error } = await sb.from('costeos').delete().eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Costeo borrado'); cargarLista();
+}
+(async () => {
+  if (!await iniciarModulo('costeo')) return;
+  try { D = await cargarDatosCosteo(); } catch (e) { return aviso(mensajeError(e), true); }
+  const { data } = await sb.from('clientes').select('id,nombre').eq('activo', true).order('nombre');
+  CLIENTES = data || [];
+  document.getElementById('eCliente').innerHTML += CLIENTES.map(c => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  document.getElementById('btnNuevo').onclick = () => abrir(0);
+  document.getElementById('btnCancelar').onclick = verLista;
+  document.getElementById('btnGuardar').onclick = guardar;
+  document.getElementById('filtro').oninput = pintarLista;
+  cargarLista();
+})();
+</script>
+</body>
+</html>

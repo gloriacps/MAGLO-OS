@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clientes — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Clientes</h1></div>
+  <div class="card">
+    <div class="entre" style="margin-bottom:14px">
+      <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar marca"></div>
+      <button class="btn" id="btnNuevo"><i class="ti ti-plus"></i> Nuevo cliente</button>
+    </div>
+    <table class="tabla">
+      <thead><tr><th>Marca</th><th>Contacto</th><th>Teléfono</th><th></th></tr></thead>
+      <tbody id="lista"></tbody>
+    </table>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+let CLIENTES = [];
+async function cargar() {
+  const { data, error } = await sb.from('clientes').select('*').eq('activo', true).order('nombre');
+  if (error) return aviso(mensajeError(error), true);
+  CLIENTES = data; pintar();
+}
+function pintar() {
+  const f = normalizar(document.getElementById('filtro').value);
+  const filas = CLIENTES.filter(c => normalizar(c.nombre).includes(f));
+  document.getElementById('lista').innerHTML = filas.length ? filas.map(c => `
+    <tr><td><b>${esc(c.nombre)}</b></td><td>${esc(c.contacto)}</td><td>${esc(c.telefono)}</td>
+    <td class="num"><button class="icono-btn" title="Editar" onclick="editar(${c.id})"><i class="ti ti-pencil"></i></button>
+    <button class="icono-btn borrar" title="Quitar" onclick="quitar(${c.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('')
+    : `<tr><td colspan="4" class="vacio">Todavía no hay clientes. Crea el primero con "Nuevo cliente".</td></tr>`;
+}
+function editar(id) {
+  const c = CLIENTES.find(x => x.id === id) || {};
+  const m = abrirModal(id ? 'Editar cliente' : 'Nuevo cliente', `
+    <div class="campo"><label>Marca</label><input id="cNombre" value="${esc(c.nombre)}"></div>
+    <div class="fila"><div><label>Contacto</label><input id="cContacto" value="${esc(c.contacto)}"></div>
+    <div><label>Teléfono</label><input id="cTel" value="${esc(c.telefono)}"></div></div>
+    <div class="campo"><label>Notas</label><textarea id="cNotas" rows="2">${esc(c.notas)}</textarea></div>
+    <div id="cErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="cGuardar"><i class="ti ti-device-floppy"></i> Guardar</button></div>`);
+  m.querySelector('#cGuardar').onclick = async () => {
+    const reg = { nombre: capitalizar(m.querySelector('#cNombre').value), contacto: m.querySelector('#cContacto').value.trim() || null,
+      telefono: m.querySelector('#cTel').value.trim() || null, notas: m.querySelector('#cNotas').value.trim() || null };
+    if (!reg.nombre) return (m.querySelector('#cErr').textContent = 'Escribe el nombre de la marca');
+    const q = id ? sb.from('clientes').update(reg).eq('id', id) : sb.from('clientes').insert(reg);
+    const { error } = await q;
+    if (error) return (m.querySelector('#cErr').textContent = mensajeError(error));
+    cerrarModal(); aviso('Cliente guardado'); cargar();
+  };
+}
+async function quitar(id) {
+  const c = CLIENTES.find(x => x.id === id);
+  if (!confirm(`¿Quitar a ${c.nombre} de la lista? Sus órdenes anteriores se conservan.`)) return;
+  const { error } = await sb.from('clientes').update({ activo: false }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Cliente quitado'); cargar();
+}
+(async () => {
+  if (!await iniciarModulo('clientes')) return;
+  document.getElementById('btnNuevo').onclick = () => editar(0);
+  document.getElementById('filtro').oninput = pintar;
+  cargar();
+})();
+</script>
+</body>
+</html>

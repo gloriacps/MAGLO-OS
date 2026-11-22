@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Producción — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .orden-card summary{background:#fff;font-size:17px}
+  .orden-card summary .info{font-weight:400;color:var(--texto2);font-size:14px;display:block}
+  .proc{border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .proc-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+  .proc-cab b{font-size:17px}
+  .asig{display:grid;grid-template-columns:1.4fr .8fr .8fr .8fr 1.2fr auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--borde);font-size:15px}
+  @media(max-width:700px){.asig{grid-template-columns:1fr 1fr 1fr;}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Producción</h1></div>
+  <div class="aviso cel">Aquí está lo que hay en la planta. Asigna cada proceso a uno o varios operarios. Lo producido se llena solo con lo que se paga en la nómina.</div>
+  <div class="buscador" style="max-width:420px;margin:14px 0"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar por marca, referencia u operario"></div>
+  <div id="lista"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+let ORDENES = [], AVANCE = [], PRECIOS = [], PROCESOS = [], OPERARIOS = [], ABIERTAS = new Set();
+
+async function cargar() {
+  const [o, a, p, pr, op] = await Promise.all([
+    sb.from('ordenes').select('*, clientes(nombre)').eq('estado', 'produccion').order('fecha_entrega'),
+    sb.from('v_avance_produccion').select('*'),
+    sb.from('v_precio_proceso_orden').select('*'),
+    sb.from('procesos').select('*').order('orden'),
+    sb.from('operarios').select('id,nombre').eq('activo', true).eq('tipo_pago', 'produccion').order('nombre'),
+  ]);
+  if (o.error) return aviso(mensajeError(o.error), true);
+  ORDENES = o.data; AVANCE = a.data || []; PRECIOS = p.data || []; PROCESOS = pr.data || []; OPERARIOS = op.data || [];
+  pintar();
+}
+const precioDe = (oid, pid) => Number(PRECIOS.find(x => x.orden_id === oid && x.proceso_id === pid)?.precio || 0);
+
+function pintar() {
+  document.querySelectorAll('details.orden-card[open]').forEach(d => ABIERTAS.add(d.dataset.id));
+  document.querySelectorAll('details.orden-card:not([open])').forEach(d => ABIERTAS.delete(d.dataset.id));
+  const f = normalizar(document.getElementById('filtro').value);
+  const filas = ORDENES.filter(o => !f || normalizar(`${o.clientes?.nombre} ${o.referencia} ${o.nombre_prenda} ${o.numero_remision} ${AVANCE.filter(a => a.orden_id === o.id).map(a => a.operario).join(' ')}`).includes(f));
+  if (!filas.length) {
+    document.getElementById('lista').innerHTML = `<div class="card vacio">${ORDENES.length ? 'No hay resultados para esa búsqueda.' : 'No hay nada en producción. Las órdenes nuevas aparecen aquí.'}</div>`;
+    return;
+  }
+  document.getElementById('lista').innerHTML = filas.map(o => {
+    const procs = PROCESOS.filter(p => p.requiere_operario && precioDe(o.id, p.id) > 0);
+    const listos = procs.filter(p => AVANCE.filter(a => a.orden_id === o.id && a.proceso_id === p.id).reduce((s, a) => s + a.producido, 0) >= o.cantidad).length;
+    const abierta = ABIERTAS.has(String(o.id)) || f ? 'open' : '';
+    return `<details class="grupo orden-card" data-id="${o.id}" ${abierta}>
+      <summary><span><i class="ti ti-chevron-right flecha"></i>${esc(o.clientes?.nombre)} · Ref. ${esc(o.referencia)} · ${numero(o.cantidad)} und
+        <span class="info">${o.numero_remision ? 'Remisión ' + esc(o.numero_remision) + ' · ' : ''}${esc(o.nombre_prenda || '')} · Entregada ${fechaCorta(o.fecha_entrega)}</span></span>
+        <span class="chip ${listos === procs.length && procs.length ? 'verde' : ''}">${listos} de ${procs.length} procesos listos</span></summary>
+      <div class="cuerpo">${procs.length ? procs.map(p => bloqueProceso(o, p)).join('')
+        : `<div class="aviso amar">Esta orden todavía no tiene costeo. <a href="ordenes.html?id=${o.id}">Ármalo aquí</a> para poder asignar los procesos.</div>`}</div>
+    </details>`;
+  }).join('');
+}
+
+function bloqueProceso(o, p) {
+  const asig = AVANCE.filter(a => a.orden_id === o.id && a.proceso_id === p.id);
+  const asignado = asig.reduce((s, a) => s + a.asignado, 0);
+  const producido = asig.reduce((s, a) => s + a.producido, 0);
+  const sinAsignar = o.cantidad - asignado;
+  return `<div class="proc">
+    <div class="proc-cab"><span><b>${esc(p.nombre)}</b> <span class="muted">· ${pesos(precioDe(o.id, p.id))} por prenda</span></span>
+      <span>${producido >= o.cantidad ? '<span class="chip verde"><i class="ti ti-check"></i> Listo</span>' : `<span class="muted">${numero(producido)} de ${numero(o.cantidad)} producidas</span>`}</span></div>
+    ${asig.map(a => {
+      const pct = a.asignado ? Math.min(100, a.producido / a.asignado * 100) : 0;
+      return `<div class="asig"><span><i class="ti ti-user"></i> <b>${esc(a.operario)}</b></span>
+        <span>Le diste <b>${numero(a.asignado)}</b></span><span>Hizo <b>${numero(a.producido)}</b></span><span>Faltan <b>${numero(a.pendiente)}</b></span>
+        <div class="barra ${a.pendiente === 0 ? 'lista' : ''}"><div style="width:${pct}%"></div></div>
+        <span><button class="icono-btn" title="Cambiar cantidad" onclick="editarAsig(${a.asignacion_id})"><i class="ti ti-pencil"></i></button>
+        <button class="icono-btn borrar" title="Quitar" onclick="quitarAsig(${a.asignacion_id})"><i class="ti ti-trash"></i></button></span></div>`;
+    }).join('')}
+    ${sinAsignar > 0 ? `<div style="margin-top:8px" class="entre"><span class="muted">Sin asignar: <b>${numero(sinAsignar)}</b></span>
+      <button class="btn sec peq" onclick="asignar(${o.id},${p.id})"><i class="ti ti-plus"></i> Agregar operario</button></div>` : ''}
+  </div>`;
+}
+
+function asignar(oid, pid) {
+  const o = ORDENES.find(x => x.id === oid), p = PROCESOS.find(x => x.id === pid);
+  const libre = o.cantidad - AVANCE.filter(a => a.orden_id === oid && a.proceso_id === pid).reduce((s, a) => s + a.asignado, 0);
+  let elegido = null;
+  const m = abrirModal(`${esc(p.nombre)} · Ref. ${esc(o.referencia)}`, `
+    <div class="campo buscador"><label>Operario</label><input id="aOp" placeholder="Escribe el nombre" autocomplete="off"></div>
+    <div class="campo"><label>¿Cuántas le entregas? (quedan ${numero(libre)} sin asignar)</label><input id="aCant" inputmode="numeric" value="${libre}"></div>
+    <div id="aErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="aGuardar"><i class="ti ti-check"></i> Asignar</button></div>`);
+  buscador(m.querySelector('#aOp'), async t => OPERARIOS.filter(x => normalizar(x.nombre).includes(normalizar(t))).slice(0, 20).map(x => ({ id: x.id, texto: x.nombre })),
+    it => { elegido = it.id; m.querySelector('#aOp').value = it.texto; m.querySelector('#aCant').focus(); });
+  m.querySelector('#aGuardar').onclick = async () => {
+    const err = m.querySelector('#aErr'), cant = leerNumero(m.querySelector('#aCant').value);
+    if (!elegido) return (err.textContent = 'Elige el operario de la lista');
+    if (cant <= 0) return (err.textContent = 'Escribe la cantidad');
+    if (cant > libre) return (err.textContent = `Solo quedan ${libre} por asignar en este proceso`);
+    const { error } = await sb.from('asignaciones').insert({ orden_id: oid, proceso_id: pid, operario_id: elegido, cantidad: cant, precio_unitario: precioDe(oid, pid) });
+    if (error) return (err.textContent = mensajeError(error));
+    ABIERTAS.add(String(oid)); cerrarModal(); aviso('Asignado'); cargar();
+  };
+}
+function editarAsig(id) {
+  const a = AVANCE.find(x => x.asignacion_id === id);
+  const o = ORDENES.find(x => x.id === a.orden_id);
+  const otros = AVANCE.filter(x => x.orden_id === a.orden_id && x.proceso_id === a.proceso_id && x.asignacion_id !== id).reduce((s, x) => s + x.asignado, 0);
+  const max = o.cantidad - otros;
+  const m = abrirModal(`Cambiar lo asignado a ${esc(a.operario)}`, `
+    <p class="muted">${esc(a.proceso)} · ya cobró ${numero(a.producido)}. Puedes ponerle entre ${numero(a.producido)} y ${numero(max)}.</p>
+    <div class="campo"><label>Cantidad asignada</label><input id="eCant" inputmode="numeric" value="${a.asignado}"></div><div id="eErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="eGuardar">Guardar</button></div>`);
+  m.querySelector('#eGuardar').onclick = async () => {
+    const cant = leerNumero(m.querySelector('#eCant').value);
+    if (cant <= 0) return (m.querySelector('#eErr').textContent = 'Escribe la cantidad');
+    const { error } = await sb.from('asignaciones').update({ cantidad: cant }).eq('id', id);
+    if (error) return (m.querySelector('#eErr').textContent = mensajeError(error));
+    cerrarModal(); aviso('Guardado'); cargar();
+  };
+}
+async function quitarAsig(id) {
+  const a = AVANCE.find(x => x.asignacion_id === id);
+  if (a.producido > 0) return aviso(`${a.operario} ya cobró ${a.producido} unidades aquí. Puedes bajarle la cantidad, pero no quitarla.`, true);
+  if (!confirm(`¿Quitar a ${a.operario} de ${a.proceso}?`)) return;
+  const { error } = await sb.from('asignaciones').delete().eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Quitado'); cargar();
+}
+(async () => {
+  if (!await iniciarModulo('produccion')) return;
+  document.getElementById('filtro').oninput = pintar;
+  cargar();
+})();
+</script>
+</body>
+</html>

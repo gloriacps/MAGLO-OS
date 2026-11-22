@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Órdenes — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .cab-orden{background:var(--rey);color:#fff;border-radius:14px;padding:16px 20px;margin-bottom:16px}
+  .cab-orden h2{margin:0;font-size:21px}
+  .cab-orden div{color:#DCE6FB;margin-top:4px}
+  .cobro .entre{padding:7px 0;border-bottom:1px solid var(--borde)}
+  .cobro .entre:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html" id="volver"><i class="ti ti-arrow-left"></i> Inicio</a><h1 id="titulo">Órdenes</h1></div>
+
+  <section id="vistaLista">
+    <div class="tabs">
+      <button class="tab act" data-tab="produccion">En producción</button>
+      <button class="tab" data-tab="finalizada">Finalizadas</button>
+    </div>
+    <div class="card">
+      <div class="entre" style="margin-bottom:14px">
+        <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar por remisión, marca o referencia"></div>
+        <button class="btn" id="btnNueva"><i class="ti ti-plus"></i> Nueva orden</button>
+      </div>
+      <table class="tabla"><thead><tr><th>Remisión</th><th>Marca</th><th>Referencia</th><th class="num">Cantidad</th><th>Entregada</th><th class="num">Cobró c/u</th><th class="num">Ganancia</th></tr></thead><tbody id="lista"></tbody></table>
+    </div>
+  </section>
+
+  <section id="vistaOrden" class="oculto">
+    <div class="cab-orden" id="cabOrden"></div>
+    <div class="card cobro">
+      <h2>Lo que cobró</h2>
+      <div class="entre"><span>Precio por prenda</span><div style="width:180px;position:relative"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--texto2)">$</span><input id="oPrecio" inputmode="numeric" style="text-align:right;padding-left:22px"></div></div>
+      <div class="entre"><span>Le van a pagar por el lote</span><b id="oPagan"></b></div>
+      <div class="entre"><span>Le cuesta el lote</span><span id="oCuesta"></span></div>
+      <div class="entre"><span><b>Ganancia</b></span><b id="oGanancia" style="color:var(--rey)"></b></div>
+      <div id="oAlerta"></div>
+    </div>
+    <h2 style="font-size:19px;margin:18px 0 10px">Costeo por prenda</h2>
+    <div id="editor"></div>
+    <div class="derecha" style="margin-top:16px">
+      <button class="btn rojo" id="btnAnular"><i class="ti ti-ban"></i> Anular orden</button>
+      <button class="btn sec" id="btnEditarDatos"><i class="ti ti-pencil"></i> Editar datos</button>
+      <button class="btn" id="btnGuardarOrden"><i class="ti ti-device-floppy"></i> Guardar</button>
+    </div>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/costeo.js"></script>
+<script>
+let D = null, CLIENTES = [], ORDENES = [], PLANTILLAS = [], ESTADO = 'produccion', ORDEN = null, ED = null;
+
+async function cargarLista() {
+  const [o, p] = await Promise.all([
+    sb.from('ordenes').select('*, clientes(nombre), costeos(id, costeo_operaciones(operacion_id, cantidad))').neq('estado', 'anulada').order('fecha_entrega', { ascending: false }),
+    sb.from('costeos').select('*, costeo_operaciones(operacion_id, cantidad, precio)').is('orden_id', null),
+  ]);
+  if (o.error) return aviso(mensajeError(o.error), true);
+  ORDENES = o.data; PLANTILLAS = p.data || [];
+  pintarLista();
+}
+function costoDe(orden) {
+  const c = orden.costeos?.[0] || orden.costeos;
+  if (!c || !c.costeo_operaciones) return null;
+  return crearEditorCosteo(document.createElement('div'), D, c.costeo_operaciones);
+}
+function pintarLista() {
+  const f = normalizar(document.getElementById('filtro').value);
+  const filas = ORDENES.filter(o => o.estado === ESTADO && (!f || normalizar(`${o.numero_remision} ${o.clientes?.nombre} ${o.referencia} ${o.nombre_prenda}`).includes(f)));
+  document.getElementById('lista').innerHTML = filas.length ? filas.map(o => {
+    const ed = costoDe(o);
+    const gan = ed && o.precio_cobrado ? (o.precio_cobrado - ed.costo()) * o.cantidad : null;
+    return `<tr style="cursor:pointer" onclick="abrirOrden(${o.id})">
+      <td><b>${esc(o.numero_remision || '—')}</b></td><td>${esc(o.clientes?.nombre)}</td>
+      <td>${esc(o.referencia)}<div class="muted">${esc(o.nombre_prenda || '')}</div></td>
+      <td class="num">${numero(o.cantidad)}</td><td>${fechaCorta(o.fecha_entrega)}</td>
+      <td class="num">${o.precio_cobrado ? pesos(o.precio_cobrado) : '<span class="muted">Sin precio</span>'}</td>
+      <td class="num">${gan == null ? '<span class="muted">—</span>' : `<b style="color:${gan < 0 ? 'var(--rojo)' : 'var(--rey)'}">${pesos(gan)}</b>`}</td></tr>`;
+  }).join('') : `<tr><td colspan="7" class="vacio">${ESTADO === 'produccion' ? 'No hay órdenes en producción. Crea una con "Nueva orden".' : 'Todavía no hay órdenes finalizadas.'}</td></tr>`;
+}
+
+/* ---------- Nueva orden / editar datos ---------- */
+function formOrden(o) {
+  return `
+    <div class="fila"><div><label>Marca (cliente)</label><select id="nCliente"><option value="">Elige la marca</option>${CLIENTES.map(c => `<option value="${c.id}" ${o.cliente_id === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select></div>
+    <div><label>Número de remisión</label><input id="nRemision" value="${esc(o.numero_remision)}"></div></div>
+    <div class="fila"><div class="buscador"><label>Referencia</label><input id="nRef" value="${esc(o.referencia)}" autocomplete="off"></div>
+    <div><label>Nombre de la prenda</label><input id="nPrenda" value="${esc(o.nombre_prenda)}"></div></div>
+    <div id="nCosteoInfo"></div>
+    <div class="fila"><div><label>Cantidad que le entregaron</label><input id="nCant" inputmode="numeric" value="${o.cantidad || ''}"></div>
+    <div><label>Fecha en que le entregaron</label><input id="nFecha" type="date" value="${o.fecha_entrega || hoyISO()}"></div></div>
+    <div id="nErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="nGuardar"><i class="ti ti-device-floppy"></i> Guardar</button></div>`;
+}
+function plantillaPara(clienteId, ref) {
+  const r = normalizar(ref);
+  if (!r) return null;
+  return PLANTILLAS.find(p => normalizar(p.referencia) === r && p.cliente_id === clienteId)
+      || PLANTILLAS.find(p => normalizar(p.referencia) === r && !p.cliente_id) || null;
+}
+function nuevaOrden() {
+  const m = abrirModal('Nueva orden (remisión)', formOrden({}), { ancho: 680 });
+  const info = () => {
+    const pl = plantillaPara(Number(m.querySelector('#nCliente').value) || null, m.querySelector('#nRef').value);
+    m.querySelector('#nCosteoInfo').innerHTML = pl
+      ? `<div class="aviso cel"><i class="ti ti-circle-check"></i> Esta referencia ya tiene costeo guardado. Se trae solo.</div>` : '';
+    if (pl && !m.querySelector('#nPrenda').value) m.querySelector('#nPrenda').value = pl.nombre_prenda || '';
+  };
+  m.querySelector('#nCliente').onchange = info;
+  m.querySelector('#nRef').addEventListener('change', info);
+  buscador(m.querySelector('#nRef'), async t => {
+    const cid = Number(m.querySelector('#nCliente').value) || null, tt = normalizar(t);
+    return PLANTILLAS.filter(p => (!cid || !p.cliente_id || p.cliente_id === cid) && p.referencia && normalizar(`${p.referencia} ${p.nombre_prenda}`).includes(tt))
+      .slice(0, 15).map(p => ({ id: p.id, texto: `${p.referencia} · ${p.nombre_prenda || ''}`, extra: 'Costeada', ref: p.referencia }));
+  }, it => { m.querySelector('#nRef').value = it.ref; info(); });
+  m.querySelector('#nGuardar').onclick = async () => {
+    const err = m.querySelector('#nErr');
+    const reg = {
+      cliente_id: Number(m.querySelector('#nCliente').value) || null,
+      numero_remision: m.querySelector('#nRemision').value.trim() || null,
+      referencia: m.querySelector('#nRef').value.trim(),
+      nombre_prenda: capitalizar(m.querySelector('#nPrenda').value) || null,
+      cantidad: leerNumero(m.querySelector('#nCant').value),
+      fecha_entrega: m.querySelector('#nFecha').value || hoyISO(),
+    };
+    if (!reg.cliente_id) return (err.textContent = 'Elige la marca');
+    if (!reg.referencia) return (err.textContent = 'Escribe la referencia');
+    if (!reg.cantidad) return (err.textContent = 'Escribe la cantidad');
+    const { data: orden, error } = await sb.from('ordenes').insert(reg).select().single();
+    if (error) return (err.textContent = mensajeError(error));
+    const pl = plantillaPara(reg.cliente_id, reg.referencia);
+    const { data: c, error: e2 } = await sb.from('costeos').insert({ orden_id: orden.id, cliente_id: reg.cliente_id, referencia: reg.referencia, nombre_prenda: reg.nombre_prenda }).select('id').single();
+    if (e2) return (err.textContent = mensajeError(e2));
+    if (pl) {
+      try { await guardarSeleccionCosteo(c.id, pl.costeo_operaciones.map(s => ({ operacion_id: s.operacion_id, cantidad: s.cantidad, precio: s.precio }))); }
+      catch (e) { return (err.textContent = mensajeError(e)); }
+    }
+    cerrarModal(); aviso('Orden creada');
+    await cargarLista(); abrirOrden(orden.id);
+  };
+}
+function editarDatos() {
+  const o = ORDEN;
+  const m = abrirModal('Editar datos de la orden', formOrden(o), { ancho: 680 });
+  m.querySelector('#nGuardar').onclick = async () => {
+    const err = m.querySelector('#nErr');
+    const reg = {
+      cliente_id: Number(m.querySelector('#nCliente').value) || null,
+      numero_remision: m.querySelector('#nRemision').value.trim() || null,
+      referencia: m.querySelector('#nRef').value.trim(),
+      nombre_prenda: capitalizar(m.querySelector('#nPrenda').value) || null,
+      cantidad: leerNumero(m.querySelector('#nCant').value),
+      fecha_entrega: m.querySelector('#nFecha').value || o.fecha_entrega,
+    };
+    if (!reg.cliente_id || !reg.referencia || !reg.cantidad) return (err.textContent = 'Llena marca, referencia y cantidad');
+    if (reg.cantidad < o.cantidad) {
+      const { data } = await sb.from('asignaciones').select('proceso_id, cantidad').eq('orden_id', o.id);
+      const porProceso = {};
+      (data || []).forEach(a => porProceso[a.proceso_id] = (porProceso[a.proceso_id] || 0) + a.cantidad);
+      const max = Math.max(0, ...Object.values(porProceso));
+      if (reg.cantidad < max) return (err.textContent = `Ya hay ${max} unidades asignadas en un proceso. Baja primero lo asignado en Producción.`);
+    }
+    const { error } = await sb.from('ordenes').update(reg).eq('id', o.id);
+    if (error) return (err.textContent = mensajeError(error));
+    cerrarModal(); aviso('Datos guardados'); await cargarLista(); abrirOrden(o.id);
+  };
+}
+
+/* ---------- Detalle de la orden ---------- */
+function abrirOrden(id) {
+  ORDEN = ORDENES.find(o => o.id === id);
+  if (!ORDEN) return;
+  history.replaceState(null, '', 'ordenes.html?id=' + id);
+  document.getElementById('vistaLista').classList.add('oculto');
+  document.getElementById('vistaOrden').classList.remove('oculto');
+  document.getElementById('titulo').textContent = 'Orden ' + (ORDEN.numero_remision || '');
+  const v = document.getElementById('volver');
+  v.innerHTML = '<i class="ti ti-arrow-left"></i> Órdenes'; v.href = 'ordenes.html';
+  document.getElementById('cabOrden').innerHTML = `
+    <h2><i class="ti ti-file-invoice"></i> ${ORDEN.numero_remision ? 'Remisión ' + esc(ORDEN.numero_remision) + ' · ' : ''}${esc(ORDEN.clientes?.nombre)}</h2>
+    <div>Ref. ${esc(ORDEN.referencia)}${ORDEN.nombre_prenda ? ' · ' + esc(ORDEN.nombre_prenda) : ''} · ${numero(ORDEN.cantidad)} unidades · Entregada ${fechaCorta(ORDEN.fecha_entrega)}
+    ${ORDEN.estado === 'finalizada' ? ' · <b>Finalizada</b>' : ''}</div>`;
+  document.getElementById('oPrecio').value = ORDEN.precio_cobrado ? numero(ORDEN.precio_cobrado) : '';
+  const c = ORDEN.costeos?.[0] || ORDEN.costeos;
+  ED = crearEditorCosteo(document.getElementById('editor'), D, c?.costeo_operaciones || [], calcularCobro);
+  calcularCobro();
+  window.scrollTo(0, 0);
+}
+function calcularCobro() {
+  if (!ED || !ORDEN) return;
+  const precio = leerNumero(document.getElementById('oPrecio').value);
+  const n = ORDEN.cantidad, costo = ED.costo(), deb = ED.deberia();
+  document.getElementById('oPagan').textContent = precio ? pesos(precio * n) : '—';
+  document.getElementById('oCuesta').textContent = pesos(costo * n);
+  const gan = precio ? (precio - costo) * n : null;
+  const g = document.getElementById('oGanancia');
+  g.textContent = gan == null ? '—' : pesos(gan);
+  g.style.color = gan != null && gan < 0 ? 'var(--rojo)' : 'var(--rey)';
+  const al = document.getElementById('oAlerta');
+  if (!precio) al.innerHTML = '<div class="aviso cel">Escribe cuánto cobró por prenda para ver la ganancia.</div>';
+  else if (precio < costo) al.innerHTML = `<div class="aviso rojo"><i class="ti ti-alert-triangle"></i> Está cobrando menos de lo que le cuesta hacer la prenda: pierde ${pesos((costo - precio) * n)} en este lote.</div>`;
+  else if (precio < deb) al.innerHTML = `<div class="aviso amar"><i class="ti ti-alert-triangle"></i> Cobró ${pesos(deb - precio)} menos por prenda de lo que debería: dejó de ganar ${pesos((deb - precio) * n)} en este lote.</div>`;
+  else al.innerHTML = '<div class="aviso cel"><i class="ti ti-circle-check"></i> Buen precio.</div>';
+}
+async function guardarOrden() {
+  const btn = document.getElementById('btnGuardarOrden'); btn.disabled = true;
+  try {
+    const precio = leerNumero(document.getElementById('oPrecio').value) || null;
+    const { error } = await sb.from('ordenes').update({ precio_cobrado: precio }).eq('id', ORDEN.id);
+    if (error) throw error;
+    const c = ORDEN.costeos?.[0] || ORDEN.costeos;
+    const sel = ED.seleccion();
+    await guardarSeleccionCosteo(c.id, sel);
+    // Si la referencia no tenía costeo guardado, se guarda para la próxima vez
+    if (!plantillaPara(ORDEN.cliente_id, ORDEN.referencia) && sel.length) {
+      const { data: pl, error: e3 } = await sb.from('costeos').insert({ cliente_id: ORDEN.cliente_id, referencia: ORDEN.referencia, nombre_prenda: ORDEN.nombre_prenda }).select('id').single();
+      if (!e3) await guardarSeleccionCosteo(pl.id, sel);
+    }
+    aviso('Orden guardada');
+    const id = ORDEN.id; await cargarLista(); abrirOrden(id);
+  } catch (e) { aviso(mensajeError(e), true); }
+  btn.disabled = false;
+}
+async function anular() {
+  const { count } = await sb.from('asignaciones').select('id', { count: 'exact', head: true }).eq('orden_id', ORDEN.id);
+  if (count) return aviso('Esta orden ya tiene operarios asignados en Producción. Quítalos primero para poder anularla.', true);
+  if (!confirm('¿Anular esta orden? Dejará de aparecer en la lista.')) return;
+  const { error } = await sb.from('ordenes').update({ estado: 'anulada' }).eq('id', ORDEN.id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Orden anulada'); location.href = 'ordenes.html';
+}
+
+(async () => {
+  if (!await iniciarModulo('ordenes')) return;
+  try { D = await cargarDatosCosteo(); } catch (e) { return aviso(mensajeError(e), true); }
+  const { data } = await sb.from('clientes').select('id,nombre').eq('activo', true).order('nombre');
+  CLIENTES = data || [];
+  activarPestanas(t => { ESTADO = t; pintarLista(); });
+  document.getElementById('btnNueva').onclick = nuevaOrden;
+  document.getElementById('filtro').oninput = pintarLista;
+  document.getElementById('oPrecio').oninput = calcularCobro;
+  document.getElementById('btnGuardarOrden').onclick = guardarOrden;
+  document.getElementById('btnEditarDatos').onclick = editarDatos;
+  document.getElementById('btnAnular').onclick = anular;
+  await cargarLista();
+  const id = Number(new URLSearchParams(location.search).get('id'));
+  if (id) abrirOrden(id);
+})();
+</script>
+</body>
+</html>

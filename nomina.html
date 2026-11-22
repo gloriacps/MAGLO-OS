@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nómina — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .semana{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .semana b{font-size:19px}
+  .resumen-cajas{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:14px}
+  .caja{background:var(--rey-claro);border-radius:12px;padding:12px 14px}
+  .caja span{display:block;font-size:14px;color:var(--texto2);font-weight:700}
+  .caja b{font-size:21px;color:var(--rey-osc)}
+  .caja.cel{background:var(--celeste-claro)} .caja.cel b{color:var(--celeste-osc)}
+  .liq-cab{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;background:var(--rey);color:#fff;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+  .liq-cab .nom{font-size:21px;font-weight:800}
+  .liq-cab .det{color:#DCE6FB;font-size:15px}
+  .sec-tit{font-size:17px;font-weight:800;margin:16px 0 8px;color:var(--rey-osc)}
+  .desc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+  .peso{position:relative}.peso:before{content:'$';position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--texto2)}.peso input{padding-left:22px;text-align:right}
+  .totales .entre{padding:8px 0;border-bottom:1px solid var(--borde);font-size:17px}
+  .totales .final{font-size:22px;color:var(--rey-osc);border-bottom:none}
+  .lista-liq tr{cursor:pointer}
+  .comprobante{background:#fff;padding:24px;max-width:720px;margin:0 auto;font-size:15px;color:#0F1E4D}
+  .comprobante h3{margin:0;font-size:20px;color:#1E40AF}
+  .comprobante table{width:100%;border-collapse:collapse;margin:8px 0}
+  .comprobante td,.comprobante th{border-bottom:1px solid #D6DEEE;padding:5px 4px;text-align:left}
+  .comprobante .num{text-align:right}
+  #imprimible{position:absolute;left:-9999px;top:0}
+  @media print{
+    body.imprimiendo>*:not(#imprimible){display:none!important}
+    body.imprimiendo #imprimible{position:static}
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Nómina</h1></div>
+  <div class="tabs">
+    <button class="tab" data-tab="mes"><i class="ti ti-calendar-month"></i> Resumen mes</button>
+    <button class="tab" data-tab="semana"><i class="ti ti-calendar-week"></i> Resumen semana</button>
+    <button class="tab act" data-tab="liquidacion"><i class="ti ti-file-dollar"></i> Liquidación</button>
+    <button class="tab" data-tab="operario"><i class="ti ti-user-dollar"></i> Por operario</button>
+  </div>
+
+  <div class="semana" id="selSemana">
+    <button class="btn sec peq" id="semAnt"><i class="ti ti-chevron-left"></i></button>
+    <b id="txtSemana"></b>
+    <button class="btn sec peq" id="semSig"><i class="ti ti-chevron-right"></i></button>
+    <button class="btn sec peq" id="semHoy">Esta semana</button>
+  </div>
+
+  <!-- LIQUIDACIÓN -->
+  <section data-panel="liquidacion">
+    <div class="card" id="cardListaLiq">
+      <div class="entre" style="margin-bottom:12px">
+        <div class="buscador" style="flex:1;max-width:420px"><i class="ti ti-search"></i><input id="buscaPersona" placeholder="Buscar persona para liquidar" autocomplete="off"></div>
+      </div>
+      <table class="tabla lista-liq"><thead><tr><th>Persona</th><th>Se le paga</th><th>Cómo</th><th class="num">Total a pagar</th><th>Estado</th></tr></thead><tbody id="listaLiq"></tbody></table>
+      <div id="cajasSemana"></div>
+    </div>
+    <div id="formLiq" class="oculto"></div>
+  </section>
+
+  <!-- RESUMEN SEMANA -->
+  <section data-panel="semana" class="oculto">
+    <div class="card" id="resSemana"></div>
+  </section>
+
+  <!-- RESUMEN MES -->
+  <section data-panel="mes" class="oculto">
+    <div class="card" id="resMes"></div>
+  </section>
+
+  <!-- POR OPERARIO -->
+  <section data-panel="operario" class="oculto">
+    <div class="card">
+      <div class="buscador" style="max-width:420px"><i class="ti ti-search"></i><input id="buscaOperario" placeholder="Buscar operario" autocomplete="off"></div>
+      <div id="fichaOperario" style="margin-top:16px"></div>
+    </div>
+  </section>
+</main>
+<div id="imprimible"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+let LUNES, NOMINA = null, LIQS = [], OPERARIOS = [], CFG = {}, DESCANSOS = [], FORM = null, PESTANA = 'liquidacion';
+
+/* ---------- Fechas ---------- */
+function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function fecha(s) { return new Date(s + 'T12:00:00'); }
+function lunesDe(d) { const x = new Date(d); x.setHours(12); const w = (x.getDay() + 6) % 7; x.setDate(x.getDate() - w); return iso(x); }
+function sumarDias(s, n) { const d = fecha(s); d.setDate(d.getDate() + n); return iso(d); }
+function txtSemana(lunes) {
+  const a = fecha(lunes), b = fecha(sumarDias(lunes, 6));
+  return a.getMonth() === b.getMonth()
+    ? `Semana del ${a.getDate()} al ${b.getDate()} de ${MESES[b.getMonth()]}`
+    : `Semana del ${a.getDate()} de ${MESES[a.getMonth()]} al ${b.getDate()} de ${MESES[b.getMonth()]}`;
+}
+function horasDia(ini, fin) {
+  if (!ini || !fin || fin <= ini) return 0;
+  const m = t => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; };
+  let min = m(fin) - m(ini);
+  DESCANSOS.forEach(d => { const h = m(d.hora.slice(0, 5)); if (m(ini) <= h && m(fin) > h) min -= d.minutos; });
+  return Math.max(0, Math.round(min / 60 * 100) / 100);
+}
+function txtHoras(h) { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); return mm ? `${hh} h ${mm} min` : `${hh} h`; }
+
+/* ---------- Carga ---------- */
+async function cargarSemana() {
+  document.getElementById('txtSemana').textContent = txtSemana(LUNES);
+  const { data: n } = await sb.from('nominas').select('*').eq('semana_inicio', LUNES).maybeSingle();
+  NOMINA = n;
+  LIQS = [];
+  if (n) {
+    const { data, error } = await sb.from('v_liquidaciones').select('*').eq('nomina_id', n.id).order('operario');
+    if (error) return aviso(mensajeError(error), true);
+    LIQS = data;
+  }
+  pintarListaLiq();
+  if (PESTANA === 'semana') pintarResumenSemana();
+  if (PESTANA === 'mes') pintarResumenMes();
+}
+function sumas(liqs) {
+  const s = { total: 0, ahorro: 0, tienda: 0, efectivo: 0, cuenta: 0, prestamo: 0, patinador: 0 };
+  liqs.forEach(l => {
+    const t = Number(l.total_pagar);
+    s.total += t; s.ahorro += Number(l.desc_ahorro); s.tienda += Number(l.desc_tienda);
+    s.prestamo += Number(l.desc_prestamo); s.patinador += Number(l.desc_patinador);
+    l.forma_pago === 'efectivo' ? s.efectivo += t : s.cuenta += t;
+  });
+  return s;
+}
+function cajas(s) {
+  return `<div class="resumen-cajas">
+    <div class="caja"><span>Total nómina</span><b>${pesos(s.total)}</b></div>
+    <div class="caja cel"><span><i class="ti ti-building-bank"></i> Consignar</span><b>${pesos(s.cuenta)}</b></div>
+    <div class="caja cel"><span><i class="ti ti-cash"></i> Retirar en efectivo</span><b>${pesos(s.efectivo)}</b></div>
+    <div class="caja"><span><i class="ti ti-shopping-cart"></i> Pagar a la tienda</span><b>${pesos(s.tienda)}</b></div>
+    <div class="caja"><span><i class="ti ti-pig-money"></i> Guardar de ahorros</span><b>${pesos(s.ahorro)}</b></div>
+  </div>`;
+}
+
+/* ---------- Lista de la semana ---------- */
+function pintarListaLiq() {
+  document.getElementById('listaLiq').innerHTML = LIQS.length ? LIQS.map(l => `
+    <tr onclick="abrirLiq(${l.id})"><td><b>${esc(l.operario)}</b><div class="muted">${esc(l.cedula || '')}</div></td>
+    <td>${l.tipo_pago === 'horas' ? '<span class="chip cel">Por horas</span>' : '<span class="chip">Producción</span>'}</td>
+    <td>${l.forma_pago === 'efectivo' ? 'Efectivo' : 'Consignación'}</td>
+    <td class="num"><b>${pesos(l.total_pagar)}</b></td>
+    <td>${l.estado === 'liquidada' ? '<span class="chip verde"><i class="ti ti-lock"></i> Liquidada</span>' : '<span class="chip gris">Sin liquidar</span>'}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="vacio">Todavía no hay liquidaciones esta semana. Busca una persona arriba para empezar.</td></tr>`;
+  document.getElementById('cajasSemana').innerHTML = LIQS.length ? cajas(sumas(LIQS)) : '';
+}
+
+/* ---------- Formulario de liquidación ---------- */
+async function nuevaLiq(op) {
+  const ya = LIQS.find(l => l.operario_id === op.id);
+  if (ya) return abrirLiq(ya.id);
+  FORM = {
+    id: null, estado: 'borrador', operario: op, tipo: op.tipo_pago, forma_pago: op.forma_pago || 'cuenta',
+    valor_hora: Number(op.valor_hora) || CFG.valor_hora_terminacion || 0,
+    prod: [], extras: [], horas: {},
+    desc: { patinador: op.tipo_pago === 'produccion' ? (CFG.descuento_patinador || 0) : 0, ahorro: 0, prestamo: 0, tienda: 0, seguridad_social: 0, otros: 0 },
+    otros_detalle: '',
+  };
+  await cargarApoyo();
+  pintarForm();
+}
+async function abrirLiq(id) {
+  const l = LIQS.find(x => x.id === id);
+  const op = OPERARIOS.find(o => o.id === l.operario_id) || { id: l.operario_id, nombre: l.operario, cedula: l.cedula };
+  const [p, e, h] = await Promise.all([
+    sb.from('liquidacion_produccion').select('*').eq('liquidacion_id', id),
+    sb.from('liquidacion_extras').select('*').eq('liquidacion_id', id),
+    sb.from('liquidacion_horas').select('*').eq('liquidacion_id', id),
+  ]);
+  FORM = {
+    id, estado: l.estado, operario: op, tipo: l.tipo_pago, forma_pago: l.forma_pago, valor_hora: Number(l.valor_hora) || 0,
+    banco: l.banco, tipo_cuenta: l.tipo_cuenta, numero_cuenta: l.numero_cuenta,
+    prod: (p.data || []).map(x => ({ asignacion_id: x.asignacion_id, cantidad: x.cantidad, valor: Number(x.valor_unitario), guardada: x.cantidad })),
+    extras: (e.data || []).map(x => ({ descripcion: x.descripcion, valor: Number(x.valor) })),
+    horas: Object.fromEntries((h.data || []).map(x => [x.dia, { ini: x.hora_inicio.slice(0, 5), fin: x.hora_fin.slice(0, 5) }])),
+    desc: { patinador: Number(l.desc_patinador), ahorro: Number(l.desc_ahorro), prestamo: Number(l.desc_prestamo), tienda: Number(l.desc_tienda), seguridad_social: Number(l.desc_seguridad_social), otros: Number(l.desc_otros) },
+    otros_detalle: l.desc_otros_detalle || '',
+  };
+  await cargarApoyo();
+  pintarForm();
+}
+/* Lo que tiene asignado la persona, saldos y préstamos de la semana */
+async function cargarApoyo() {
+  const opId = FORM.operario.id;
+  const [av, sal, mov] = await Promise.all([
+    sb.from('v_avance_produccion').select('*').eq('operario_id', opId),
+    sb.from('v_saldos_operario').select('*').eq('operario_id', opId).maybeSingle(),
+    sb.from('movimientos_operario').select('*').eq('operario_id', opId).eq('tipo', 'prestamo').gte('fecha', LUNES).lte('fecha', sumarDias(LUNES, 6)),
+  ]);
+  const asig = av.data || [];
+  const ordenIds = [...new Set(asig.map(a => a.orden_id))];
+  let ordenes = [], precios = [];
+  if (ordenIds.length) {
+    const [o, pr] = await Promise.all([
+      sb.from('ordenes').select('id, referencia, nombre_prenda, numero_remision, clientes(nombre)').in('id', ordenIds),
+      sb.from('v_precio_proceso_orden').select('*').in('orden_id', ordenIds),
+    ]);
+    ordenes = o.data || []; precios = pr.data || [];
+  }
+  FORM.asig = asig.map(a => {
+    const o = ordenes.find(x => x.id === a.orden_id) || {};
+    const precio = Number(precios.find(x => x.orden_id === a.orden_id && x.proceso_id === a.proceso_id)?.precio || a.precio_unitario || 0);
+    return { ...a, marca: o.clientes?.nombre || '', referencia: o.referencia, prenda: o.nombre_prenda, precio };
+  });
+  FORM.prod.forEach(l => { const a = FORM.asig.find(x => x.asignacion_id === l.asignacion_id); if (a) Object.assign(l, { a }); });
+  FORM.saldo = sal.data || { ahorro: 0, prestamo_pendiente: 0 };
+  FORM.prestamosSemana = (mov.data || []).reduce((s, m) => s + Number(m.valor), 0);
+}
+function maxLinea(l) { return l.a ? l.a.pendiente + (l.guardada || 0) : 0; }
+function calc() {
+  const prod = FORM.prod.reduce((s, l) => s + (l.cantidad || 0) * (l.valor || 0), 0);
+  const extras = FORM.extras.reduce((s, x) => s + (x.valor || 0), 0);
+  const horas = Object.values(FORM.horas).reduce((s, d) => s + horasDia(d.ini, d.fin), 0);
+  const ingHoras = Math.round(horas * FORM.valor_hora);
+  const ingresos = FORM.tipo === 'horas' ? ingHoras + extras : prod + extras;
+  const ded = FORM.tipo === 'horas'
+    ? FORM.desc.prestamo + FORM.desc.tienda
+    : Object.values(FORM.desc).reduce((s, v) => s + (v || 0), 0);
+  return { prod, extras, horas, ingHoras, ingresos, ded, pagar: ingresos - ded };
+}
+
+function pintarForm() {
+  const f = FORM, op = f.operario, cerrada = f.estado === 'liquidada', dis = cerrada ? 'disabled' : '';
+  const banco = f.banco ?? op.banco, tcta = f.tipo_cuenta ?? op.tipo_cuenta, ncta = f.numero_cuenta ?? op.numero_cuenta;
+  document.getElementById('cardListaLiq').classList.add('oculto');
+  document.getElementById('selSemana').classList.add('oculto');
+  const cont = document.getElementById('formLiq');
+  cont.classList.remove('oculto');
+
+  const prodHTML = `
+    <div class="sec-tit">Lo que hizo esta semana</div>
+    ${f.asig.length || f.prod.length ? `
+      <table class="tabla"><thead><tr><th>Referencia</th><th>Operación</th><th class="num">Valor</th><th class="num" style="width:120px">Cantidad</th><th class="num">Subtotal</th><th></th></tr></thead>
+      <tbody>${f.prod.map((l, i) => `<tr>
+        <td><b>${esc(l.a?.marca)} · Ref. ${esc(l.a?.referencia)}</b><div class="muted">Le quedan ${numero(maxLinea(l))} por cobrar</div></td>
+        <td>${esc(l.a?.proceso)}</td><td class="num">${pesos(l.valor)}</td>
+        <td class="num"><input inputmode="numeric" ${dis} value="${l.cantidad || ''}" oninput="setProd(${i},this.value)" style="text-align:right"></td>
+        <td class="num"><b id="sub${i}">${pesos((l.cantidad || 0) * l.valor)}</b></td>
+        <td>${cerrada ? '' : `<button class="icono-btn borrar" onclick="quitarProd(${i})"><i class="ti ti-x"></i></button>`}</td></tr>`).join('')}</tbody></table>
+      ${cerrada ? '' : `<div class="buscador" style="margin-top:10px;max-width:520px"><i class="ti ti-search"></i><input id="buscaRef" placeholder="Buscar referencia que trabajó" autocomplete="off"></div>`}`
+    : `<div class="aviso amar">${esc(op.nombre)} no tiene nada asignado en Producción. Asígnale primero en el módulo Producción.</div>`}`;
+
+  const horasHTML = `
+    <div class="sec-tit">Horas de la semana · ${pesos(f.valor_hora)} la hora</div>
+    <table class="tabla"><thead><tr><th>Día</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th></tr></thead><tbody>
+    ${DIAS.map((d, i) => { const dia = sumarDias(LUNES, i), h = f.horas[dia] || {}; return `<tr>
+      <td><b>${d}</b> <span class="muted">${fecha(dia).getDate()}</span></td>
+      <td><input type="time" ${dis} value="${h.ini || ''}" onchange="setHora('${dia}','ini',this.value)"></td>
+      <td><input type="time" ${dis} value="${h.fin || ''}" onchange="setHora('${dia}','fin',this.value)"></td>
+      <td class="num" id="h_${dia}">${h.ini && h.fin ? txtHoras(horasDia(h.ini, h.fin)) : '—'}</td></tr>`; }).join('')}
+    </tbody></table>
+    <div class="muted">Se descuentan solos los descansos (${DESCANSOS.map(d => `${d.nombre.toLowerCase()} ${d.hora.slice(0, 5)}`).join(', ')}) si la persona estaba trabajando a esa hora.</div>`;
+
+  const extrasHTML = `
+    <div class="sec-tit">Extras (muestras u otros)</div>
+    ${f.extras.map((x, i) => `<div class="entre" style="margin-bottom:8px"><input ${dis} value="${esc(x.descripcion)}" placeholder="Muestra, arreglo..." oninput="FORM.extras[${i}].descripcion=this.value" style="flex:1">
+      <div class="peso" style="width:170px"><input inputmode="numeric" ${dis} value="${x.valor ? numero(x.valor) : ''}" oninput="FORM.extras[${i}].valor=leerNumero(this.value);totales()"></div>
+      ${cerrada ? '' : `<button class="icono-btn borrar" onclick="FORM.extras.splice(${i},1);pintarForm()"><i class="ti ti-x"></i></button>`}</div>`).join('')}
+    ${cerrada ? '' : `<button class="btn sec peq" onclick="FORM.extras.push({descripcion:'',valor:0});pintarForm()"><i class="ti ti-plus"></i> Agregar extra</button>`}`;
+
+  const campoDesc = (k, txt, extra = '') => `<div><label>${txt}</label><div class="peso"><input inputmode="numeric" ${dis} value="${f.desc[k] ? numero(f.desc[k]) : ''}" placeholder="0" oninput="FORM.desc.${k}=leerNumero(this.value);totales()"></div>${extra}</div>`;
+  const infoPrestamo = `<div class="muted">Debe: ${pesos(f.saldo.prestamo_pendiente)}${f.prestamosSemana ? ` · Esta semana se le prestó ${pesos(f.prestamosSemana)}` : ''}</div>`;
+  const descHTML = `
+    <div class="sec-tit">Deducciones</div>
+    <div class="desc-grid">
+      ${f.tipo === 'produccion' ? campoDesc('patinador', 'Patinador') : ''}
+      ${f.tipo === 'produccion' ? campoDesc('ahorro', 'Ahorro', `<div class="muted">Lleva ahorrado: ${pesos(f.saldo.ahorro)}</div>`) : ''}
+      ${campoDesc('prestamo', 'Préstamo', infoPrestamo)}
+      ${campoDesc('tienda', 'Tienda')}
+      ${f.tipo === 'produccion' ? campoDesc('seguridad_social', 'Seguridad social') : ''}
+      ${f.tipo === 'produccion' ? campoDesc('otros', 'Otros descuentos') : ''}
+    </div>
+    ${f.tipo === 'produccion' ? `<div class="campo" style="margin-top:10px"><label>¿Qué son los otros descuentos?</label><input ${dis} value="${esc(f.otros_detalle)}" placeholder="Cumpleaños, aseo..." oninput="FORM.otros_detalle=this.value"></div>` : ''}`;
+
+  cont.innerHTML = `
+    <div class="liq-cab"><div><div class="nom">${esc(op.nombre)}</div><div class="det">C.C. ${esc(op.cedula || 'sin cédula')} · ${txtSemana(LUNES)}</div></div>
+      <div class="det" style="text-align:right">${f.tipo === 'horas' ? 'Por horas' : 'Por producción'}${cerrada ? '<br><b style="color:#fff"><i class="ti ti-lock"></i> Liquidada</b>' : ''}</div></div>
+    <div class="card">
+      <label>Forma de pago</label>
+      <div class="opciones" style="margin-bottom:10px">
+        <div class="opcion ${f.forma_pago === 'cuenta' ? 'sel' : ''}" ${cerrada ? '' : `onclick="FORM.forma_pago='cuenta';pintarForm()"`}><i class="ti ti-building-bank"></i> Consignación<small>${esc([banco, tcta, ncta].filter(Boolean).join(' · ') || 'Sin cuenta registrada')}</small></div>
+        <div class="opcion ${f.forma_pago === 'efectivo' ? 'sel' : ''}" ${cerrada ? '' : `onclick="FORM.forma_pago='efectivo';pintarForm()"`}><i class="ti ti-cash"></i> Efectivo</div>
+      </div>
+      ${f.tipo === 'horas' ? horasHTML : prodHTML}
+      ${extrasHTML}
+      ${descHTML}
+      <div class="totales" id="totales" style="margin-top:16px"></div>
+      <div id="formErr" class="err"></div>
+    </div>
+    <div class="derecha no-print">
+      <button class="btn sec" onclick="volverLista()"><i class="ti ti-arrow-left"></i> Volver</button>
+      <button class="btn sec" onclick="imprimir()"><i class="ti ti-printer"></i> Imprimir / PDF</button>
+      <button class="btn sec" onclick="copiarImagen()"><i class="ti ti-photo"></i> Copiar imagen</button>
+      ${cerrada ? (PERFIL.es_admin ? `<button class="btn rojo" onclick="reabrir()"><i class="ti ti-lock-open"></i> Reabrir para corregir</button>` : '')
+        : `${f.id ? `<button class="btn rojo" onclick="borrarLiq()"><i class="ti ti-trash"></i> Borrar</button>` : ''}
+           <button class="btn" onclick="guardar(false)"><i class="ti ti-device-floppy"></i> Guardar</button>
+           <button class="btn cel" onclick="guardar(true)"><i class="ti ti-circle-check"></i> Liquidar</button>`}
+    </div>`;
+  totales();
+  const br = document.getElementById('buscaRef');
+  if (br) buscador(br, async t => {
+    const tt = normalizar(t);
+    return f.asig.filter(a => a.pendiente > 0 && !f.prod.some(l => l.asignacion_id === a.asignacion_id)
+      && normalizar(`${a.marca} ${a.referencia} ${a.prenda} ${a.proceso}`).includes(tt))
+      .map(a => ({ id: a.asignacion_id, texto: `${a.marca} · Ref. ${a.referencia} · ${a.proceso}`, extra: `faltan ${a.pendiente}` }));
+  }, it => {
+    const a = f.asig.find(x => x.asignacion_id === it.id);
+    f.prod.push({ asignacion_id: a.asignacion_id, a, valor: a.precio, cantidad: 0, guardada: 0 });
+    pintarForm();
+    const ins = document.querySelectorAll('#formLiq .tabla tbody input');
+    if (ins.length) ins[ins.length - 1].focus();
+  });
+  window.scrollTo(0, 0);
+}
+function setProd(i, v) {
+  const l = FORM.prod[i]; l.cantidad = leerNumero(v);
+  document.getElementById('sub' + i).textContent = pesos(l.cantidad * l.valor);
+  totales();
+}
+function quitarProd(i) { FORM.prod.splice(i, 1); pintarForm(); }
+function setHora(dia, k, v) {
+  FORM.horas[dia] = { ...(FORM.horas[dia] || {}), [k]: v };
+  const h = FORM.horas[dia];
+  document.getElementById('h_' + dia).textContent = h.ini && h.fin ? (h.fin > h.ini ? txtHoras(horasDia(h.ini, h.fin)) : 'Revisa') : '—';
+  totales();
+}
+function totales() {
+  const c = calc();
+  const err = [];
+  FORM.prod.forEach(l => { if (l.cantidad > maxLinea(l)) err.push(`En Ref. ${l.a?.referencia} · ${l.a?.proceso} solo le quedan ${maxLinea(l)} por cobrar`); });
+  document.getElementById('totales').innerHTML = `
+    ${FORM.tipo === 'horas' ? `<div class="entre"><span>${txtHoras(c.horas)} trabajadas × ${pesos(FORM.valor_hora)}</span><span>${pesos(c.ingHoras)}</span></div>` : `<div class="entre"><span>Producción</span><span>${pesos(c.prod)}</span></div>`}
+    ${c.extras ? `<div class="entre"><span>Extras</span><span>${pesos(c.extras)}</span></div>` : ''}
+    <div class="entre"><span><b>Total ingresos</b></span><b>${pesos(c.ingresos)}</b></div>
+    <div class="entre"><span>Total deducciones</span><span>− ${pesos(c.ded)}</span></div>
+    <div class="entre final"><span><b>Total a pagar</b></span><b>${pesos(c.pagar)}</b></div>
+    ${err.map(e => `<div class="aviso rojo">${esc(e)}</div>`).join('')}
+    ${c.pagar < 0 ? '<div class="aviso amar">Las deducciones son mayores que lo que ganó esta semana.</div>' : ''}`;
+}
+
+/* ---------- Guardar / liquidar ---------- */
+async function asegurarNomina() {
+  if (NOMINA) return NOMINA.id;
+  const { data, error } = await sb.from('nominas').insert({ semana_inicio: LUNES }).select().single();
+  if (error) {
+    const { data: n } = await sb.from('nominas').select('*').eq('semana_inicio', LUNES).maybeSingle();
+    if (n) { NOMINA = n; return n.id; }
+    throw error;
+  }
+  NOMINA = data; return data.id;
+}
+async function guardar(liquidar) {
+  const f = FORM, errBox = document.getElementById('formErr');
+  errBox.textContent = '';
+  const lineas = f.prod.filter(l => l.cantidad > 0);
+  for (const l of lineas) if (l.cantidad > maxLinea(l)) return (errBox.textContent = `En Ref. ${l.a?.referencia} · ${l.a?.proceso} solo le quedan ${maxLinea(l)} por cobrar`);
+  const horas = Object.entries(f.horas).filter(([, h]) => h.ini && h.fin);
+  for (const [d, h] of horas) if (h.fin <= h.ini) return (errBox.textContent = `Revisa las horas del ${fecha(d).getDate()}: la salida debe ser después de la entrada`);
+  const extras = f.extras.filter(x => x.descripcion.trim() && x.valor > 0);
+  if (liquidar && !lineas.length && !horas.length && !extras.length) return (errBox.textContent = 'No hay nada para pagar en esta liquidación');
+  if (liquidar && !confirm(`¿Liquidar a ${f.operario.nombre} por ${pesos(calc().pagar)}? Después solo una administradora la puede reabrir.`)) return;
+  try {
+    const nid = await asegurarNomina();
+    const cab = {
+      nomina_id: nid, operario_id: f.operario.id, tipo_pago: f.tipo, forma_pago: f.forma_pago,
+      banco: f.banco ?? f.operario.banco ?? null, tipo_cuenta: f.tipo_cuenta ?? f.operario.tipo_cuenta ?? null, numero_cuenta: f.numero_cuenta ?? f.operario.numero_cuenta ?? null,
+      valor_hora: f.tipo === 'horas' ? f.valor_hora : null,
+      desc_patinador: f.tipo === 'produccion' ? f.desc.patinador : 0,
+      desc_ahorro: f.tipo === 'produccion' ? f.desc.ahorro : 0,
+      desc_prestamo: f.desc.prestamo, desc_tienda: f.desc.tienda,
+      desc_seguridad_social: f.tipo === 'produccion' ? f.desc.seguridad_social : 0,
+      desc_otros: f.tipo === 'produccion' ? f.desc.otros : 0,
+      desc_otros_detalle: f.tipo === 'produccion' ? (f.otros_detalle.trim() || null) : null,
+    };
+    let id = f.id;
+    if (id) { const { error } = await sb.from('liquidaciones').update(cab).eq('id', id); if (error) throw error; }
+    else { const { data, error } = await sb.from('liquidaciones').insert(cab).select('id').single(); if (error) throw error; id = data.id; f.id = id; }
+    for (const t of ['liquidacion_produccion', 'liquidacion_extras', 'liquidacion_horas']) {
+      const { error } = await sb.from(t).delete().eq('liquidacion_id', id); if (error) throw error;
+    }
+    if (f.tipo === 'produccion' && lineas.length) {
+      const { error } = await sb.from('liquidacion_produccion').insert(lineas.map(l => ({ liquidacion_id: id, asignacion_id: l.asignacion_id, cantidad: l.cantidad, valor_unitario: l.valor })));
+      if (error) throw error;
+    }
+    if (extras.length) {
+      const { error } = await sb.from('liquidacion_extras').insert(extras.map(x => ({ liquidacion_id: id, descripcion: capitalizar(x.descripcion), valor: x.valor })));
+      if (error) throw error;
+    }
+    if (f.tipo === 'horas' && horas.length) {
+      const { error } = await sb.from('liquidacion_horas').insert(horas.map(([dia, h]) => ({ liquidacion_id: id, dia, hora_inicio: h.ini, hora_fin: h.fin })));
+      if (error) throw error;
+    }
+    if (liquidar) { const { error } = await sb.from('liquidaciones').update({ estado: 'liquidada' }).eq('id', id); if (error) throw error; }
+    aviso(liquidar ? 'Liquidada' : 'Guardada');
+    await cargarSemana();
+    abrirLiq(id);
+  } catch (e) { errBox.textContent = mensajeError(e); }
+}
+async function reabrir() {
+  if (!confirm('¿Reabrir esta liquidación para corregirla? Después de corregir, vuelve a darle Liquidar.')) return;
+  const { error } = await sb.from('liquidaciones').update({ estado: 'borrador' }).eq('id', FORM.id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Reabierta'); await cargarSemana(); abrirLiq(FORM.id);
+}
+async function borrarLiq() {
+  if (!confirm(`¿Borrar la liquidación de ${FORM.operario.nombre}? Lo que cobró vuelve a quedar pendiente en Producción.`)) return;
+  const { error } = await sb.from('liquidaciones').delete().eq('id', FORM.id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Borrada'); volverLista(); cargarSemana();
+}
+function volverLista() {
+  FORM = null;
+  document.getElementById('formLiq').classList.add('oculto');
+  document.getElementById('cardListaLiq').classList.remove('oculto');
+  document.getElementById('selSemana').classList.remove('oculto');
+  cargarSemana();
+}
+
+/* ---------- Comprobante: imprimir / PDF / imagen ---------- */
+function comprobanteHTML() {
+  const f = FORM, op = f.operario, c = calc();
+  const filasProd = f.tipo === 'horas'
+    ? DIAS.map((d, i) => { const dia = sumarDias(LUNES, i), h = f.horas[dia]; return h && h.ini && h.fin ? `<tr><td>${d} ${fecha(dia).getDate()}</td><td>${h.ini} a ${h.fin}</td><td class="num">${txtHoras(horasDia(h.ini, h.fin))}</td></tr>` : ''; }).join('')
+    : f.prod.filter(l => l.cantidad > 0).map(l => `<tr><td>${esc(l.a?.marca)} · Ref. ${esc(l.a?.referencia)}</td><td>${esc(l.a?.proceso)}</td><td class="num">${numero(l.cantidad)} × ${pesos(l.valor)}</td><td class="num">${pesos(l.cantidad * l.valor)}</td></tr>`).join('');
+  const d = f.desc;
+  const deds = (f.tipo === 'horas' ? [['Préstamo', d.prestamo], ['Tienda', d.tienda]]
+    : [['Patinador', d.patinador], ['Ahorro', d.ahorro], ['Préstamo', d.prestamo], ['Tienda', d.tienda], ['Seguridad social', d.seguridad_social], [`Otros${f.otros_detalle ? ' (' + f.otros_detalle + ')' : ''}`, d.otros]])
+    .filter(([, v]) => v > 0);
+  return `<div class="comprobante">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><h3>MAGLO · Comprobante de pago</h3><div>${txtSemana(LUNES)}</div></div>
+    <div style="text-align:right">${f.estado === 'liquidada' ? '<b>LIQUIDADA</b>' : 'Sin liquidar'}</div></div>
+    <p><b>${esc(op.nombre)}</b> · C.C. ${esc(op.cedula || '')}<br>
+    ${f.forma_pago === 'efectivo' ? 'Pago en efectivo' : 'Consignación: ' + esc([f.banco ?? op.banco, f.tipo_cuenta ?? op.tipo_cuenta, f.numero_cuenta ?? op.numero_cuenta].filter(Boolean).join(' · '))}</p>
+    <table>${f.tipo === 'horas' ? `<tr><th>Día</th><th>Horario</th><th class="num">Horas</th></tr>` : `<tr><th>Referencia</th><th>Operación</th><th class="num">Cantidad</th><th class="num">Subtotal</th></tr>`}${filasProd}</table>
+    ${f.tipo === 'horas' ? `<p>${txtHoras(c.horas)} × ${pesos(f.valor_hora)} = <b>${pesos(c.ingHoras)}</b></p>` : ''}
+    ${f.extras.filter(x => x.valor > 0).map(x => `<div style="display:flex;justify-content:space-between"><span>Extra: ${esc(x.descripcion)}</span><span>${pesos(x.valor)}</span></div>`).join('')}
+    <table style="margin-top:10px"><tr><td><b>Total ingresos</b></td><td class="num"><b>${pesos(c.ingresos)}</b></td></tr>
+    ${deds.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="num">− ${pesos(v)}</td></tr>`).join('')}
+    <tr><td style="font-size:18px"><b>Total a pagar</b></td><td class="num" style="font-size:18px"><b>${pesos(c.pagar)}</b></td></tr></table>
+  </div>`;
+}
+function imprimirHTML(html) {
+  const imp = document.getElementById('imprimible');
+  imp.innerHTML = html;
+  document.body.classList.add('imprimiendo');
+  setTimeout(() => { window.print(); document.body.classList.remove('imprimiendo'); }, 100);
+}
+function imprimir() { imprimirHTML(comprobanteHTML()); }
+async function copiarImagenDe(html, nombre) {
+  const imp = document.getElementById('imprimible');
+  imp.innerHTML = html;
+  try {
+    const canvas = await html2canvas(imp.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      aviso('Imagen copiada. Pégala en WhatsApp con Ctrl + V');
+    } catch {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre + '.png'; a.click();
+      aviso('Imagen descargada');
+    }
+  } catch (e) { aviso('No se pudo crear la imagen', true); }
+}
+function copiarImagen() { copiarImagenDe(comprobanteHTML(), `Nomina ${FORM.operario.nombre} ${LUNES}`); }
+
+/* ---------- Resumen semana ---------- */
+function tablaResumenSemana() {
+  const s = sumas(LIQS);
+  return `<div class="comprobante" style="max-width:none;padding:0">
+    <h3 style="margin-bottom:6px">Nómina · ${txtSemana(LUNES)}</h3>
+    <table class="tabla"><thead><tr><th>Persona</th><th>Cédula</th><th>Cómo</th><th class="num">Ingresos</th><th class="num">Deducciones</th><th class="num">Total a pagar</th><th>Estado</th></tr></thead><tbody>
+    ${LIQS.map(l => `<tr><td><b>${esc(l.operario)}</b></td><td>${esc(l.cedula || '')}</td>
+      <td>${l.forma_pago === 'efectivo' ? 'Efectivo' : esc([l.banco, l.numero_cuenta].filter(Boolean).join(' ') || 'Consignación')}</td>
+      <td class="num">${pesos(l.total_ingresos)}</td><td class="num">${pesos(l.total_deducciones)}</td><td class="num"><b>${pesos(l.total_pagar)}</b></td>
+      <td>${l.estado === 'liquidada' ? 'Liquidada' : 'Sin liquidar'}</td></tr>`).join('')}
+    </tbody></table>
+    ${cajas(s)}</div>`;
+}
+function pintarResumenSemana() {
+  document.getElementById('resSemana').innerHTML = LIQS.length ? `
+    <div class="derecha no-print" style="margin-bottom:12px">
+      <button class="btn sec" onclick="imprimirHTML(tablaResumenSemana())"><i class="ti ti-printer"></i> Imprimir / PDF</button>
+      <button class="btn sec" onclick="copiarImagenDe(tablaResumenSemana(),'Nomina semana ${LUNES}')"><i class="ti ti-photo"></i> Copiar imagen</button></div>
+    ${tablaResumenSemana()}
+    ${LIQS.some(l => l.estado !== 'liquidada') ? '<div class="aviso amar">Hay liquidaciones sin liquidar esta semana.</div>' : ''}`
+    : '<div class="vacio">No hay liquidaciones esta semana.</div>';
+}
+
+/* ---------- Resumen mes ---------- */
+async function pintarResumenMes() {
+  const d = fecha(LUNES), y = d.getFullYear(), mo = d.getMonth();
+  const desde = iso(new Date(y, mo, 1)), hasta = iso(new Date(y, mo + 1, 0));
+  const { data, error } = await sb.from('v_liquidaciones').select('*').gte('semana_inicio', sumarDias(desde, -6)).lte('semana_inicio', hasta).order('semana_inicio');
+  if (error) return aviso(mensajeError(error), true);
+  // Una semana cuenta en el mes donde termina (el domingo)
+  const liqs = (data || []).filter(l => l.semana_fin >= desde && l.semana_fin <= hasta);
+  const semanas = [...new Set(liqs.map(l => l.semana_inicio))];
+  const personas = {};
+  liqs.forEach(l => { personas[l.operario] = (personas[l.operario] || 0) + Number(l.total_pagar); });
+  const html = `<div class="comprobante" style="max-width:none;padding:0">
+    <h3 style="margin-bottom:10px">Nómina de ${MESES[mo]} ${y}</h3>
+    <table class="tabla"><thead><tr><th>Semana</th><th class="num">Personas</th><th class="num">Total pagado</th></tr></thead><tbody>
+    ${semanas.map(s => { const ls = liqs.filter(l => l.semana_inicio === s); return `<tr><td>${txtSemana(s)}</td><td class="num">${ls.length}</td><td class="num"><b>${pesos(sumas(ls).total)}</b></td></tr>`; }).join('') || '<tr><td colspan="3" class="vacio">Sin nóminas este mes</td></tr>'}
+    </tbody></table>
+    ${liqs.length ? cajas(sumas(liqs)) : ''}
+    ${liqs.length ? `<h3 style="margin:18px 0 6px;font-size:17px">Por persona</h3><table class="tabla"><tbody>
+      ${Object.entries(personas).sort((a, b) => b[1] - a[1]).map(([n, t]) => `<tr><td>${esc(n)}</td><td class="num"><b>${pesos(t)}</b></td></tr>`).join('')}</tbody></table>` : ''}
+  </div>`;
+  document.getElementById('resMes').innerHTML = `
+    <div class="entre no-print" style="margin-bottom:12px"><span class="muted">Las semanas cuentan en el mes en que terminan (el domingo).</span>
+    <span class="derecha"><button class="btn sec" id="impMes"><i class="ti ti-printer"></i> Imprimir / PDF</button>
+    <button class="btn sec" id="imgMes"><i class="ti ti-photo"></i> Copiar imagen</button></span></div>${html}`;
+  document.getElementById('impMes').onclick = () => imprimirHTML(html);
+  document.getElementById('imgMes').onclick = () => copiarImagenDe(html, `Nomina ${MESES[mo]} ${y}`);
+}
+
+/* ---------- Por operario ---------- */
+async function fichaOperario(op) {
+  const [s, h, m] = await Promise.all([
+    sb.from('v_saldos_operario').select('*').eq('operario_id', op.id).maybeSingle(),
+    sb.from('v_liquidaciones').select('*').eq('operario_id', op.id).order('semana_inicio', { ascending: false }).limit(20),
+    sb.from('movimientos_operario').select('*').eq('operario_id', op.id).order('fecha', { ascending: false }).limit(30),
+  ]);
+  const sal = s.data || { ahorro: 0, prestamo_pendiente: 0 };
+  document.getElementById('fichaOperario').innerHTML = `
+    <div class="liq-cab"><div><div class="nom">${esc(op.nombre)}</div><div class="det">C.C. ${esc(op.cedula || '')} · ${op.tipo_pago === 'horas' ? 'Por horas' : 'Por producción'}</div></div></div>
+    <div class="resumen-cajas">
+      <div class="caja"><span><i class="ti ti-pig-money"></i> Tiene ahorrado</span><b>${pesos(sal.ahorro)}</b></div>
+      <div class="caja cel"><span><i class="ti ti-receipt"></i> Debe de préstamos</span><b>${pesos(sal.prestamo_pendiente)}</b></div>
+    </div>
+    <div class="derecha" style="margin:14px 0">
+      <button class="btn sec" onclick="movimiento(${op.id},'retiro_ahorro')"><i class="ti ti-pig-money"></i> Entregar ahorro</button>
+      <button class="btn" onclick="movimiento(${op.id},'prestamo')"><i class="ti ti-plus"></i> Anotar préstamo</button>
+    </div>
+    <div class="sec-tit">Préstamos y retiros de ahorro</div>
+    <table class="tabla"><tbody>${(m.data || []).map(x => `<tr><td>${fechaCorta(x.fecha)}</td><td>${x.tipo === 'prestamo' ? 'Préstamo' : 'Retiro de ahorro'}${x.descripcion ? ' · ' + esc(x.descripcion) : ''}</td>
+      <td class="num"><b>${pesos(x.valor)}</b></td><td class="num"><button class="icono-btn borrar" onclick="borrarMov(${x.id},${op.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('') || '<tr><td class="vacio">Sin movimientos</td></tr>'}</tbody></table>
+    <div class="sec-tit">Últimas nóminas</div>
+    <table class="tabla"><thead><tr><th>Semana</th><th class="num">Ahorró</th><th class="num">Abonó a préstamo</th><th class="num">Le pagaron</th><th>Estado</th></tr></thead><tbody>
+    ${(h.data || []).map(l => `<tr><td>${txtSemana(l.semana_inicio)}</td><td class="num">${pesos(l.desc_ahorro)}</td><td class="num">${pesos(l.desc_prestamo)}</td><td class="num"><b>${pesos(l.total_pagar)}</b></td>
+      <td>${l.estado === 'liquidada' ? 'Liquidada' : 'Sin liquidar'}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin nóminas todavía</td></tr>'}</tbody></table>
+    <div class="muted" style="margin-top:8px">El ahorro y los abonos solo cuentan cuando la nómina está liquidada.</div>`;
+}
+function movimiento(opId, tipo) {
+  const op = OPERARIOS.find(o => o.id === opId);
+  const m = abrirModal(tipo === 'prestamo' ? `Préstamo a ${esc(op.nombre)}` : `Entregar ahorro a ${esc(op.nombre)}`, `
+    <div class="fila"><div><label>Valor</label><input id="mValor" inputmode="numeric"></div><div><label>Fecha</label><input id="mFecha" type="date" value="${hoyISO()}"></div></div>
+    <div class="campo"><label>Nota (opcional)</label><input id="mDesc"></div><div id="mErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="mGuardar">Guardar</button></div>`);
+  m.querySelector('#mGuardar').onclick = async () => {
+    const valor = leerNumero(m.querySelector('#mValor').value);
+    if (!valor) return (m.querySelector('#mErr').textContent = 'Escribe el valor');
+    const { error } = await sb.from('movimientos_operario').insert({ operario_id: opId, tipo, valor, fecha: m.querySelector('#mFecha').value || hoyISO(), descripcion: m.querySelector('#mDesc').value.trim() || null });
+    if (error) return (m.querySelector('#mErr').textContent = mensajeError(error));
+    cerrarModal(); aviso('Guardado'); fichaOperario(op);
+  };
+}
+async function borrarMov(id, opId) {
+  if (!confirm('¿Borrar este movimiento?')) return;
+  const { error } = await sb.from('movimientos_operario').delete().eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  fichaOperario(OPERARIOS.find(o => o.id === opId));
+}
+
+/* ---------- Inicio ---------- */
+(async () => {
+  if (!await iniciarModulo('nomina')) return;
+  const [o, c, d] = await Promise.all([
+    sb.from('operarios').select('*').eq('activo', true).order('nombre'),
+    sb.from('configuracion').select('*'),
+    sb.from('descansos').select('*').eq('activo', true).order('hora'),
+  ]);
+  OPERARIOS = o.data || [];
+  CFG = Object.fromEntries((c.data || []).map(x => [x.clave, Number(x.valor)]));
+  DESCANSOS = d.data || [];
+  LUNES = lunesDe(new Date());
+  activarPestanas(t => {
+    PESTANA = t;
+    document.getElementById('selSemana').classList.toggle('oculto', t === 'operario' || (t === 'liquidacion' && FORM));
+    if (t === 'semana') pintarResumenSemana();
+    if (t === 'mes') pintarResumenMes();
+  });
+  const mover = n => { if (FORM) return; LUNES = sumarDias(LUNES, n); cargarSemana(); };
+  document.getElementById('semAnt').onclick = () => mover(PESTANA === 'mes' ? -28 : -7);
+  document.getElementById('semSig').onclick = () => mover(PESTANA === 'mes' ? 28 : 7);
+  document.getElementById('semHoy').onclick = () => { LUNES = lunesDe(new Date()); cargarSemana(); };
+  buscador(document.getElementById('buscaPersona'), async t => OPERARIOS.filter(x => normalizar(`${x.nombre} ${x.cedula}`).includes(normalizar(t))).slice(0, 20)
+    .map(x => ({ id: x.id, texto: x.nombre, extra: x.tipo_pago === 'horas' ? 'Por horas' : 'Producción' })),
+    it => { document.getElementById('buscaPersona').value = ''; nuevaLiq(OPERARIOS.find(x => x.id === it.id)); });
+  buscador(document.getElementById('buscaOperario'), async t => OPERARIOS.filter(x => normalizar(`${x.nombre} ${x.cedula}`).includes(normalizar(t))).slice(0, 20)
+    .map(x => ({ id: x.id, texto: x.nombre })),
+    it => { document.getElementById('buscaOperario').value = it.texto; fichaOperario(OPERARIOS.find(x => x.id === it.id)); });
+  cargarSemana();
+})();
+</script>
+</body>
+</html>

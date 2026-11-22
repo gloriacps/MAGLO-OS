@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operaciones — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .op-fila{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--borde)}
+  .op-fila:last-child{border-bottom:none}
+  .op-fila .nom{flex:1}
+  .op-fila input{width:130px;text-align:right}
+  .etapa{font-size:20px;font-weight:800;margin:22px 0 10px;color:var(--rey-osc)}
+  .peso{position:relative}
+  .peso:before{content:'$';position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--texto2)}
+  .peso input{padding-left:22px}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Operaciones</h1></div>
+  <div class="aviso cel">Aquí están los precios de cada operación. Si un precio cambia, cámbialo aquí y se actualiza solo en el costeo y en la nómina.</div>
+  <div class="buscador" style="max-width:420px;margin:14px 0"><i class="ti ti-search"></i><input id="filtro" placeholder="Buscar operación"></div>
+  <div id="contenido"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+let PROC = [], OPS = [], TERM = {}, CFG = {}, ABIERTOS = new Set();
+const TIPO_TXT = { unica: 'Se elige una opción', si_no: 'Lleva o no lleva', cantidad: 'Se pone la cantidad', armado: 'Se arman varias' };
+
+async function cargar() {
+  const [p, o, t, c] = await Promise.all([
+    sb.from('procesos').select('*').eq('activo', true).order('orden'),
+    sb.from('operaciones').select('*').eq('activo', true).order('nombre'),
+    sb.from('v_operaciones_terminacion').select('*'),
+    sb.from('configuracion').select('*'),
+  ]);
+  if (p.error || o.error) return aviso(mensajeError(p.error || o.error), true);
+  PROC = p.data; OPS = o.data;
+  TERM = Object.fromEntries((t.data || []).map(x => [x.operacion_id, x.precio_real]));
+  CFG = Object.fromEntries((c.data || []).map(x => [x.clave, Number(x.valor)]));
+  pintar();
+}
+
+function pintar() {
+  document.querySelectorAll('details.grupo[open]').forEach(d => ABIERTOS.add(d.dataset.id));
+  const f = normalizar(document.getElementById('filtro').value);
+  const bloque = (etapa, titulo) => {
+    const procs = PROC.filter(p => p.etapa === etapa && p.nombre !== 'Hilos');
+    return `<div class="etapa">${titulo}</div>` + procs.map(p => {
+      const ops = OPS.filter(o => o.proceso_id === p.id && (!f || normalizar(o.nombre).includes(f) || normalizar(p.nombre).includes(f)));
+      if (f && !ops.length) return '';
+      const abierto = f || ABIERTOS.has(String(p.id)) ? 'open' : '';
+      return `<details class="grupo" data-id="${p.id}" ${abierto}>
+        <summary><span><i class="ti ti-chevron-right flecha"></i>${esc(p.nombre)}</span>
+        <span class="muted">${etapa === 'confeccion' ? TIPO_TXT[p.tipo_seleccion] + ' · ' : ''}${ops.length} ${ops.length === 1 ? 'operación' : 'operaciones'}</span></summary>
+        <div class="cuerpo">${ops.map(o => filaOp(o, etapa)).join('') || '<div class="muted">Sin operaciones todavía</div>'}
+          <div style="margin-top:10px"><button class="btn sec peq" onclick="nuevaOp(${p.id})"><i class="ti ti-plus"></i> Agregar operación</button></div>
+        </div></details>`;
+    }).join('');
+  };
+  const hilos = OPS.filter(o => PROC.find(p => p.id === o.proceso_id)?.nombre === 'Hilos');
+  const admin = PERFIL.es_admin;
+  document.getElementById('contenido').innerHTML =
+    bloque('confeccion', 'Confección') +
+    bloque('terminacion', 'Terminación') +
+    `<div class="etapa">Hilos y descuentos</div>
+     <div class="card">
+      <h2>Hilos</h2>
+      <table class="tabla"><thead><tr><th>Hilo</th><th class="num">Precio del cono</th><th class="num">Metros del cono</th><th class="num">Metros por prenda</th><th class="num">Por prenda</th></tr></thead>
+      <tbody>${hilos.map(h => `<tr><td><b>${esc(h.nombre)}</b></td>
+        <td class="num"><div class="peso"><input inputmode="numeric" value="${numero(h.precio_cono)}" onchange="guardarHilo(${h.id},'precio_cono',this)"></div></td>
+        <td class="num"><input inputmode="numeric" value="${numero(h.metros_cono)}" onchange="guardarHilo(${h.id},'metros_cono',this)"></td>
+        <td class="num"><input inputmode="numeric" value="${numero(h.metros_prenda)}" onchange="guardarHilo(${h.id},'metros_prenda',this)"></td>
+        <td class="num"><b>${pesos(h.precio)}</b></td></tr>`).join('')}</tbody></table>
+      <h2 style="margin-top:20px">Descuento de patinador</h2>
+      <div class="entre"><span>Se le descuenta cada semana a los operarios por producción</span>
+        <div class="peso" style="width:160px"><input inputmode="numeric" ${admin ? '' : 'disabled'} value="${numero(CFG.descuento_patinador)}" onchange="guardarCfg('descuento_patinador',this)"></div></div>
+      ${admin ? '' : '<div class="muted">Solo una administradora puede cambiar este valor.</div>'}
+     </div>`;
+}
+
+function filaOp(o, etapa) {
+  if (etapa === 'terminacion') {
+    return `<div class="op-fila"><span class="nom">${esc(o.nombre)}</span>
+      <span class="muted">Prendas por hora</span><input inputmode="numeric" value="${numero(o.prendas_por_hora)}" onchange="guardarOp(${o.id},'prendas_por_hora',this)">
+      <span style="min-width:120px;text-align:right"><b>${pesos(TERM[o.id] ?? o.precio)}</b><div class="muted">por prenda</div></span></div>`;
+  }
+  return `<div class="op-fila"><span class="nom">${esc(o.nombre)}</span>
+    <div class="peso"><input inputmode="numeric" value="${numero(o.precio)}" onchange="guardarOp(${o.id},'precio',this)"></div>
+    <button class="icono-btn" title="Cambiar nombre" onclick="renombrar(${o.id})"><i class="ti ti-pencil"></i></button>
+    <button class="icono-btn borrar" title="Quitar" onclick="quitarOp(${o.id})"><i class="ti ti-trash"></i></button></div>`;
+}
+
+async function guardarOp(id, campo, inp) {
+  const v = leerNumero(inp.value);
+  if (campo === 'prendas_por_hora' && v <= 0) { aviso('Escribe cuántas prendas hacen por hora', true); return cargar(); }
+  const { error } = await sb.from('operaciones').update({ [campo]: v }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Precio guardado'); cargar();
+}
+async function guardarHilo(id, campo, inp) {
+  const v = leerNumero(inp.value);
+  if (v <= 0) { aviso('El valor debe ser mayor que cero', true); return cargar(); }
+  const { error } = await sb.from('operaciones').update({ [campo]: v }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Hilo actualizado'); cargar();
+}
+async function guardarCfg(clave, inp) {
+  const { error } = await sb.from('configuracion').update({ valor: leerNumero(inp.value) }).eq('clave', clave);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Guardado'); cargar();
+}
+function nuevaOp(procesoId) {
+  const p = PROC.find(x => x.id === procesoId);
+  const term = p.etapa === 'terminacion';
+  const m = abrirModal(`Nueva operación en ${esc(p.nombre)}`, `
+    <div class="campo"><label>Nombre de la operación</label><input id="nNombre"></div>
+    <div class="campo"><label>${term ? 'Prendas por hora' : 'Precio'}</label><input id="nValor" inputmode="numeric"></div>
+    <div id="nErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="nGuardar"><i class="ti ti-device-floppy"></i> Guardar</button></div>`);
+  m.querySelector('#nGuardar').onclick = async () => {
+    const nombre = capitalizar(m.querySelector('#nNombre').value), v = leerNumero(m.querySelector('#nValor').value);
+    if (!nombre) return (m.querySelector('#nErr').textContent = 'Escribe el nombre');
+    if (!v) return (m.querySelector('#nErr').textContent = term ? 'Escribe cuántas prendas por hora' : 'Escribe el precio');
+    const reg = { proceso_id: procesoId, nombre, ...(term ? { prendas_por_hora: v } : { precio: v }) };
+    const { error } = await sb.from('operaciones').insert(reg);
+    if (error) return (m.querySelector('#nErr').textContent = mensajeError(error));
+    ABIERTOS.add(String(procesoId)); cerrarModal(); aviso('Operación agregada'); cargar();
+  };
+}
+function renombrar(id) {
+  const o = OPS.find(x => x.id === id);
+  const m = abrirModal('Cambiar nombre', `<div class="campo"><input id="rNombre" value="${esc(o.nombre)}"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="rGuardar">Guardar</button></div>`);
+  m.querySelector('#rGuardar').onclick = async () => {
+    const nombre = capitalizar(m.querySelector('#rNombre').value);
+    if (!nombre) return;
+    const { error } = await sb.from('operaciones').update({ nombre }).eq('id', id);
+    if (error) return aviso(mensajeError(error), true);
+    cerrarModal(); cargar();
+  };
+}
+async function quitarOp(id) {
+  const o = OPS.find(x => x.id === id);
+  if (!confirm(`¿Quitar "${o.nombre}"? Ya no saldrá para costear, pero los costeos anteriores se conservan.`)) return;
+  const { error } = await sb.from('operaciones').update({ activo: false }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Operación quitada'); cargar();
+}
+(async () => {
+  if (!await iniciarModulo('operaciones')) return;
+  document.getElementById('filtro').oninput = pintar;
+  cargar();
+})();
+</script>
+</body>
+</html>

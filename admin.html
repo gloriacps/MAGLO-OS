@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .peso{position:relative}.peso:before{content:'$';position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--texto2)}.peso input{padding-left:22px;text-align:right}
+  .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+  .mods label{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--texto);border:1.5px solid var(--borde);border-radius:10px;padding:9px 10px;cursor:pointer;margin:0}
+  .mods input{width:auto}</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="titulo-mod"><a class="volver" href="panel.html"><i class="ti ti-arrow-left"></i> Inicio</a><h1>Admin</h1></div>
+  <div class="tabs">
+    <button class="tab act" data-tab="usuarios"><i class="ti ti-user-cog"></i> Usuarios</button>
+    <button class="tab" data-tab="planta"><i class="ti ti-building-factory-2"></i> Gastos de planta</button>
+    <button class="tab" data-tab="valores"><i class="ti ti-adjustments"></i> Valores</button>
+    <button class="tab" data-tab="descansos"><i class="ti ti-coffee"></i> Descansos</button>
+  </div>
+
+  <section data-panel="usuarios">
+    <div class="card">
+      <div class="entre" style="margin-bottom:12px"><h2 style="margin:0">Quién puede entrar al sistema</h2>
+        <button class="btn" id="btnNuevoUsuario"><i class="ti ti-user-plus"></i> Nuevo usuario</button></div>
+      <table class="tabla"><thead><tr><th>Usuario</th><th>Acceso</th><th>Estado</th><th></th></tr></thead><tbody id="usuarios"></tbody></table>
+    </div>
+  </section>
+
+  <section data-panel="planta" class="oculto">
+    <div class="card">
+      <h2>Gastos de planta del mes</h2>
+      <p class="muted" style="margin-top:-6px">Se dividen entre las prendas que salen al mes para sacar cuánto le toca a cada prenda.</p>
+      <table class="tabla"><thead><tr><th>Gasto</th><th class="num" style="width:220px">Valor al mes</th><th style="width:50px"></th></tr></thead><tbody id="gastos"></tbody></table>
+      <div style="margin-top:12px"><button class="btn sec peq" id="btnNuevoGasto"><i class="ti ti-plus"></i> Agregar gasto</button></div>
+      <div id="totalPlanta"></div>
+    </div>
+  </section>
+
+  <section data-panel="valores" class="oculto">
+    <div class="card">
+      <h2>Operarios por horas</h2>
+      <div class="fila">
+        <div><label>Valor de la hora</label><div class="peso"><input id="vHora" inputmode="numeric"></div>
+          <div class="muted">Si cambia, se recalculan solas las operaciones de terminación.</div></div>
+        <div><label>Nómina semanal de los de por horas (mientras no haya datos)</label><div class="peso"><input id="vNomHoras" inputmode="numeric"></div></div>
+      </div>
+      <div id="infoTerm"></div>
+    </div>
+    <div class="card">
+      <h2>Producción</h2>
+      <div class="fila"><div><label>Prendas al mes (mientras no haya datos)</label><input id="vPrendas" inputmode="numeric"></div><div></div></div>
+      <div id="infoPrendas"></div>
+    </div>
+    <div class="derecha"><button class="btn" id="btnGuardarValores"><i class="ti ti-device-floppy"></i> Guardar valores</button></div>
+  </section>
+
+  <section data-panel="descansos" class="oculto">
+    <div class="card">
+      <h2>Descansos que se descuentan de las horas</h2>
+      <p class="muted" style="margin-top:-6px">Cada descanso solo se descuenta si la persona estaba trabajando a esa hora.</p>
+      <table class="tabla"><thead><tr><th>Descanso</th><th style="width:170px">Hora</th><th style="width:150px">Minutos</th><th style="width:50px"></th></tr></thead><tbody id="descansos"></tbody></table>
+      <div style="margin-top:12px"><button class="btn sec peq" id="btnNuevoDescanso"><i class="ti ti-plus"></i> Agregar descanso</button></div>
+    </div>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+const MODS_ASIGNABLES = MODULOS.filter(m => m.clave !== 'admin');
+let USUARIOS = [], GASTOS = [], DESC = [], CFG = {};
+
+/* ---------- Usuarios ---------- */
+async function cargarUsuarios() {
+  const { data, error } = await sb.from('perfiles').select('*').order('email');
+  if (error) return aviso(mensajeError(error), true);
+  USUARIOS = data;
+  document.getElementById('usuarios').innerHTML = data.map(u => `
+    <tr><td><b>${esc(u.nombre || u.email.split('@')[0])}</b><div class="muted">${esc(u.email)}</div></td>
+    <td>${u.es_admin ? '<span class="chip">Administradora · todo</span>' : (u.modulos.length ? u.modulos.map(k => `<span class="chip gris">${esc(MODULOS.find(m => m.clave === k)?.nombre || k)}</span>`).join(' ') : '<span class="muted">Sin módulos</span>')}</td>
+    <td>${u.activo ? '<span class="chip verde">Activo</span>' : '<span class="chip gris">Desactivado</span>'}</td>
+    <td class="num"><button class="icono-btn" title="Editar" onclick="editarUsuario('${u.id}')"><i class="ti ti-pencil"></i></button>
+    <button class="icono-btn" title="Cambiar clave" onclick="cambiarClave('${u.id}')"><i class="ti ti-key"></i></button></td></tr>`).join('');
+}
+function formUsuario(u, nuevo) {
+  return `
+    ${nuevo ? `<div class="fila"><div><label>Correo</label><input id="uEmail" type="email"></div><div><label>Clave (mínimo 6)</label><input id="uClave" type="text"></div></div>` : `<p class="muted">${esc(u.email)}</p>`}
+    <div class="campo"><label>Nombre</label><input id="uNombre" value="${esc(u.nombre)}"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 12px;color:var(--texto)"><input type="checkbox" id="uAdmin" style="width:auto" ${u.es_admin ? 'checked' : ''}> Administradora (ve todo, incluido Admin)</label>
+    <div id="uModsBox"><label>Módulos que puede ver</label><div class="mods">${MODS_ASIGNABLES.map(m => `<label><input type="checkbox" value="${m.clave}" ${(u.modulos || []).includes(m.clave) ? 'checked' : ''}><i class="ti ${m.icono}"></i>${m.nombre}</label>`).join('')}</div></div>
+    ${nuevo ? '' : `<label style="display:flex;align-items:center;gap:8px;margin:14px 0 0;color:var(--texto)"><input type="checkbox" id="uActivo" style="width:auto" ${u.activo ? 'checked' : ''}> Puede entrar al sistema</label>`}
+    <div id="uErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="uGuardar"><i class="ti ti-device-floppy"></i> Guardar</button></div>`;
+}
+function leerForm(m) {
+  return {
+    nombre: capitalizar(m.querySelector('#uNombre').value) || null,
+    es_admin: m.querySelector('#uAdmin').checked,
+    modulos: [...m.querySelectorAll('.mods input:checked')].map(i => i.value),
+  };
+}
+function enlazarAdmin(m) {
+  const t = () => m.querySelector('#uModsBox').classList.toggle('oculto', m.querySelector('#uAdmin').checked);
+  m.querySelector('#uAdmin').onchange = t; t();
+}
+async function llamarFuncion(cuerpo) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch('/.netlify/functions/admin-usuarios', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+    body: JSON.stringify(cuerpo),
+  });
+  const d = await r.json().catch(() => ({ error: 'No se pudo conectar' }));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+function nuevoUsuario() {
+  const m = abrirModal('Nuevo usuario', formUsuario({ modulos: [] }, true));
+  enlazarAdmin(m);
+  m.querySelector('#uGuardar').onclick = async () => {
+    const err = m.querySelector('#uErr'), btn = m.querySelector('#uGuardar');
+    btn.disabled = true;
+    try {
+      await llamarFuncion({ accion: 'crear', email: m.querySelector('#uEmail').value, clave: m.querySelector('#uClave').value, ...leerForm(m) });
+      cerrarModal(); aviso('Usuario creado'); cargarUsuarios();
+    } catch (e) { err.textContent = e.message; btn.disabled = false; }
+  };
+}
+function editarUsuario(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  const m = abrirModal('Editar usuario', formUsuario(u, false));
+  enlazarAdmin(m);
+  m.querySelector('#uGuardar').onclick = async () => {
+    const reg = { ...leerForm(m), activo: m.querySelector('#uActivo').checked };
+    if (id === PERFIL.id && (!reg.es_admin || !reg.activo)) return (m.querySelector('#uErr').textContent = 'No puedes quitarte a ti misma el acceso de administradora');
+    const { error } = await sb.from('perfiles').update(reg).eq('id', id);
+    if (error) return (m.querySelector('#uErr').textContent = mensajeError(error));
+    cerrarModal(); aviso('Usuario guardado'); cargarUsuarios();
+  };
+}
+function cambiarClave(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  const m = abrirModal('Cambiar clave', `<p class="muted">${esc(u.email)}</p>
+    <div class="campo"><label>Clave nueva (mínimo 6)</label><input id="kClave" type="text"></div><div id="kErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="kGuardar">Cambiar clave</button></div>`);
+  m.querySelector('#kGuardar').onclick = async () => {
+    try { await llamarFuncion({ accion: 'clave', id, clave: m.querySelector('#kClave').value }); cerrarModal(); aviso('Clave cambiada'); }
+    catch (e) { m.querySelector('#kErr').textContent = e.message; }
+  };
+}
+
+/* ---------- Gastos de planta ---------- */
+async function cargarGastos() {
+  const [g, p] = await Promise.all([
+    sb.from('costos_adicionales').select('*').eq('activo', true).order('id'),
+    sb.from('v_prendas_mes').select('*').maybeSingle(),
+  ]);
+  GASTOS = g.data || [];
+  const prendas = Number(p.data?.prendas_mes) || 0;
+  document.getElementById('gastos').innerHTML = GASTOS.map(x => `
+    <tr><td>${esc(x.nombre)}</td><td class="num"><div class="peso"><input inputmode="numeric" value="${numero(x.valor)}" onchange="guardarGasto(${x.id},this)"></div></td>
+    <td><button class="icono-btn borrar" onclick="quitarGasto(${x.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('');
+  const total = GASTOS.reduce((s, x) => s + Number(x.valor), 0);
+  document.getElementById('totalPlanta').innerHTML = `
+    <div class="total-box"><span>Total gastos del mes</span><b>${pesos(total)}</b></div>
+    <div class="total-box" style="background:var(--celeste-claro);color:var(--celeste-osc)"><span>Costo de planta por prenda (${numero(prendas)} prendas/mes)</span><b>${pesos(prendas ? total / prendas : 0)}</b></div>`;
+}
+async function guardarGasto(id, inp) {
+  const { error } = await sb.from('costos_adicionales').update({ valor: leerNumero(inp.value) }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Gasto guardado'); cargarGastos();
+}
+async function quitarGasto(id) {
+  const g = GASTOS.find(x => x.id === id);
+  if (!confirm(`¿Quitar "${g.nombre}" de los gastos?`)) return;
+  const { error } = await sb.from('costos_adicionales').update({ activo: false }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  cargarGastos();
+}
+function nuevoGasto() {
+  const m = abrirModal('Nuevo gasto del mes', `
+    <div class="campo"><label>Gasto</label><input id="gNombre"></div>
+    <div class="campo"><label>Valor al mes</label><input id="gValor" inputmode="numeric"></div><div id="gErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="gGuardar">Guardar</button></div>`);
+  m.querySelector('#gGuardar').onclick = async () => {
+    const nombre = capitalizar(m.querySelector('#gNombre').value);
+    if (!nombre) return (m.querySelector('#gErr').textContent = 'Escribe el nombre del gasto');
+    const { error } = await sb.from('costos_adicionales').insert({ tipo: 'planta', nombre, valor: leerNumero(m.querySelector('#gValor').value) });
+    if (error) return (m.querySelector('#gErr').textContent = mensajeError(error));
+    cerrarModal(); cargarGastos();
+  };
+}
+
+/* ---------- Valores ---------- */
+async function cargarValores() {
+  const [c, p, t] = await Promise.all([
+    sb.from('configuracion').select('*'),
+    sb.from('v_prendas_mes').select('*').maybeSingle(),
+    sb.from('v_costo_terminacion').select('*').maybeSingle(),
+  ]);
+  CFG = Object.fromEntries((c.data || []).map(x => [x.clave, Number(x.valor)]));
+  document.getElementById('vHora').value = numero(CFG.valor_hora_terminacion);
+  document.getElementById('vNomHoras').value = numero(CFG.nomina_horas_semanal);
+  document.getElementById('vPrendas').value = numero(CFG.prendas_mes);
+  const pm = p.data || {}, tm = t.data || {};
+  document.getElementById('infoPrendas').innerHTML = pm.origen === 'calculado'
+    ? `<div class="aviso cel">El sistema está usando <b>${numero(pm.prendas_mes)} prendas al mes</b>, calculado con ${pm.semanas_con_datos} semanas reales.</div>`
+    : `<div class="aviso amar">Todavía no hay suficientes semanas registradas, así que se usa el número de arriba.</div>`;
+  document.getElementById('infoTerm').innerHTML = tm.origen === 'calculado'
+    ? `<div class="aviso cel">La terminación se está costeando con lo que <b>realmente</b> se pagó: ${tm.semanas_con_datos} semanas registradas.</div>`
+    : `<div class="aviso amar">Todavía no hay suficientes semanas de nómina por horas, así que se usa la nómina semanal de arriba.</div>`;
+}
+async function guardarValores() {
+  const cambios = [
+    ['valor_hora_terminacion', leerNumero(document.getElementById('vHora').value)],
+    ['nomina_horas_semanal', leerNumero(document.getElementById('vNomHoras').value)],
+    ['prendas_mes', leerNumero(document.getElementById('vPrendas').value)],
+  ];
+  for (const [clave, valor] of cambios) {
+    if (valor <= 0) return aviso('Los valores deben ser mayores que cero', true);
+    if (valor === CFG[clave]) continue;
+    const { error } = await sb.from('configuracion').update({ valor }).eq('clave', clave);
+    if (error) return aviso(mensajeError(error), true);
+  }
+  aviso('Valores guardados'); cargarValores();
+}
+
+/* ---------- Descansos ---------- */
+async function cargarDescansos() {
+  const { data } = await sb.from('descansos').select('*').eq('activo', true).order('hora');
+  DESC = data || [];
+  document.getElementById('descansos').innerHTML = DESC.map(d => `
+    <tr><td><b>${esc(d.nombre)}</b></td>
+    <td><input type="time" value="${d.hora.slice(0, 5)}" onchange="guardarDescanso(${d.id},'hora',this.value)"></td>
+    <td><input inputmode="numeric" value="${d.minutos}" onchange="guardarDescanso(${d.id},'minutos',leerNumero(this.value))"></td>
+    <td><button class="icono-btn borrar" onclick="quitarDescanso(${d.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('');
+}
+async function guardarDescanso(id, campo, valor) {
+  if (campo === 'minutos' && valor <= 0) return aviso('Los minutos deben ser mayores que cero', true);
+  const { error } = await sb.from('descansos').update({ [campo]: valor }).eq('id', id);
+  if (error) return aviso(mensajeError(error), true);
+  aviso('Descanso guardado'); cargarDescansos();
+}
+async function quitarDescanso(id) {
+  if (!confirm('¿Quitar este descanso? Dejará de descontarse en las horas nuevas.')) return;
+  await sb.from('descansos').update({ activo: false }).eq('id', id);
+  cargarDescansos();
+}
+function nuevoDescanso() {
+  const m = abrirModal('Nuevo descanso', `
+    <div class="campo"><label>Nombre</label><input id="dNombre"></div>
+    <div class="fila"><div><label>Hora</label><input id="dHora" type="time"></div><div><label>Minutos</label><input id="dMin" inputmode="numeric"></div></div>
+    <div id="dErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="dGuardar">Guardar</button></div>`);
+  m.querySelector('#dGuardar').onclick = async () => {
+    const reg = { nombre: capitalizar(m.querySelector('#dNombre').value), hora: m.querySelector('#dHora').value, minutos: leerNumero(m.querySelector('#dMin').value) };
+    if (!reg.nombre || !reg.hora || !reg.minutos) return (m.querySelector('#dErr').textContent = 'Llena nombre, hora y minutos');
+    const { error } = await sb.from('descansos').insert(reg);
+    if (error) return (m.querySelector('#dErr').textContent = mensajeError(error));
+    cerrarModal(); cargarDescansos();
+  };
+}
+
+(async () => {
+  if (!await iniciarModulo('admin')) return;
+  activarPestanas();
+  document.getElementById('btnNuevoUsuario').onclick = nuevoUsuario;
+  document.getElementById('btnNuevoGasto').onclick = nuevoGasto;
+  document.getElementById('btnNuevoDescanso').onclick = nuevoDescanso;
+  document.getElementById('btnGuardarValores').onclick = guardarValores;
+  cargarUsuarios(); cargarGastos(); cargarValores(); cargarDescansos();
+})();
+</script>
+</body>
+</html>

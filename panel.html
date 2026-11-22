@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGLO OS</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main class="wrap">
+  <div class="saludo" id="saludo">¿Qué vas a hacer hoy?</div>
+  <div class="grid-mod" id="modulos"></div>
+  <div id="resumen" style="margin-top:22px"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  const p = await iniciarModulo('panel');
+  if (!p) return;
+  const nombre = p.nombre || '';
+  document.getElementById('saludo').textContent = (nombre ? `Hola, ${nombre}. ` : '') + '¿Qué vas a hacer hoy?';
+  document.getElementById('modulos').innerHTML = MODULOS.filter(m => tieneAcceso(m.clave))
+    .map(m => `<a class="mod" href="${m.url}"><i class="ti ${m.icono}"></i><span>${m.nombre}</span></a>`).join('');
+
+  if (tieneAcceso('produccion') || tieneAcceso('ordenes')) {
+    const { count } = await sb.from('ordenes').select('id', { count: 'exact', head: true }).eq('estado', 'produccion');
+    if (count) document.getElementById('resumen').innerHTML =
+      `<div class="aviso cel"><i class="ti ti-bell"></i> Hay <b>${count}</b> ${count === 1 ? 'orden' : 'órdenes'} en producción en este momento</div>`;
+  }
+})();
+</script>
+</body>
+</html>
