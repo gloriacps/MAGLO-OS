@@ -35,12 +35,15 @@
     <div id="editor"></div>
     <div class="derecha" style="margin-top:16px">
       <button class="btn sec" id="btnCancelar">Volver</button>
+      <button class="btn sec" id="btnPDF"><i class="ti ti-file-download"></i> Cotización PDF</button>
       <button class="btn" id="btnGuardar"><i class="ti ti-device-floppy"></i> Guardar costeo</button>
     </div>
   </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="js/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="js/costeo.js"></script>
 <script>
 let D = null, CLIENTES = [], COSTEOS = [], ED = null, ACTUAL = null;
@@ -98,7 +101,8 @@ async function guardar() {
     if (id) { const { error } = await sb.from('costeos').update(reg).eq('id', id); if (error) throw error; }
     else { const { data, error } = await sb.from('costeos').insert(reg).select('id').single(); if (error) throw error; id = data.id; }
     await guardarSeleccionCosteo(id, ED.seleccion());
-    aviso('Costeo guardado'); verLista();
+    const n = await sincronizarCosteos(reg.referencia, reg.cliente_id, ED.seleccion(), id);
+    aviso(n ? `Costeo guardado y actualizado en ${n} ${n === 1 ? 'orden' : 'órdenes'}` : 'Costeo guardado'); verLista();
   } catch (e) { aviso(mensajeError(e), true); }
   btn.disabled = false;
 }
@@ -118,6 +122,11 @@ async function borrar(id) {
   document.getElementById('btnNuevo').onclick = () => abrir(0);
   document.getElementById('btnCancelar').onclick = verLista;
   document.getElementById('btnGuardar').onclick = guardar;
+  document.getElementById('btnPDF').onclick = () => pedirDatosCotizacion(ED.deberia(), d => {
+    const sel = document.getElementById('eCliente');
+    return generarCotizacionPDF({ ...d, cliente: sel.value ? sel.options[sel.selectedIndex].text : '', referencia: document.getElementById('eRef').value.trim(),
+      prenda: capitalizar(document.getElementById('ePrenda').value), lineas: ED.lineasCotizacion() });
+  });
   document.getElementById('filtro').oninput = pintarLista;
   cargarLista();
 })();

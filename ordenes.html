@@ -48,6 +48,7 @@
     <div id="editor"></div>
     <div class="derecha" style="margin-top:16px">
       <button class="btn rojo" id="btnAnular"><i class="ti ti-ban"></i> Anular orden</button>
+      <button class="btn sec" id="btnPDF"><i class="ti ti-file-download"></i> Cotización PDF</button>
       <button class="btn sec" id="btnEditarDatos"><i class="ti ti-pencil"></i> Editar datos</button>
       <button class="btn" id="btnGuardarOrden"><i class="ti ti-device-floppy"></i> Guardar</button>
     </div>
@@ -55,6 +56,8 @@
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="js/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="js/costeo.js"></script>
 <script>
 let D = null, CLIENTES = [], ORDENES = [], PLANTILLAS = [], ESTADO = 'produccion', ORDEN = null, ED = null;
@@ -225,6 +228,8 @@ async function guardarOrden() {
       const { data: pl, error: e3 } = await sb.from('costeos').insert({ cliente_id: ORDEN.cliente_id, referencia: ORDEN.referencia, nombre_prenda: ORDEN.nombre_prenda }).select('id').single();
       if (!e3) await guardarSeleccionCosteo(pl.id, sel);
     }
+    // Lo mismo queda en el costeo guardado y en las demás órdenes en producción de esa referencia
+    await sincronizarCosteos(ORDEN.referencia, ORDEN.cliente_id, sel, c.id);
     aviso('Orden guardada');
     const id = ORDEN.id; await cargarLista(); abrirOrden(id);
   } catch (e) { aviso(mensajeError(e), true); }
@@ -251,6 +256,8 @@ async function anular() {
   document.getElementById('btnGuardarOrden').onclick = guardarOrden;
   document.getElementById('btnEditarDatos').onclick = editarDatos;
   document.getElementById('btnAnular').onclick = anular;
+  document.getElementById('btnPDF').onclick = () => pedirDatosCotizacion(leerNumero(document.getElementById('oPrecio').value) || ED.deberia(), d =>
+    generarCotizacionPDF({ ...d, cantidad: d.cantidad || ORDEN.cantidad, cliente: ORDEN.clientes?.nombre, referencia: ORDEN.referencia, prenda: ORDEN.nombre_prenda, lineas: ED.lineasCotizacion() }));
   await cargarLista();
   const id = Number(new URLSearchParams(location.search).get('id'));
   if (id) abrirOrden(id);

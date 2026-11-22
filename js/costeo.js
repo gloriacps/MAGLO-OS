@@ -22,7 +22,7 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
   const sel = new Map();
   const proc = id => D.procesos.find(p => p.id === id);
   const opsDe = pid => D.ops.filter(o => o.proceso_id === pid);
-  const abiertos = new Set(['confeccion']);
+  const abiertos = new Set(); // todo arranca cerrado
   const filtros = {};
 
   if (seleccion && seleccion.length) seleccion.forEach(s => sel.set(s.operacion_id, Number(s.cantidad)));
@@ -149,6 +149,10 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
   pintar();
   return {
     costo, deberia,
+    lineasCotizacion: () => D.procesos.filter(p => p.nombre !== 'Hilos').map(p => ({
+      proceso: p.nombre, etapa: p.etapa,
+      ops: opsDe(p.id).filter(o => sel.has(o.id)).map(o => ({ nombre: o.nombre, cantidad: sel.get(o.id) })),
+    })).filter(x => x.ops.length),
     seleccion: () => [...sel.entries()].map(([operacion_id, cantidad]) => ({
       operacion_id, cantidad, precio: D.ops.find(o => o.id === operacion_id)?.precio || 0,
     })),
@@ -164,4 +168,77 @@ async function guardarSeleccionCosteo(costeoId, seleccion) {
     const { error: e2 } = await sb.from('costeo_operaciones').insert(seleccion.map(s => ({ costeo_id: costeoId, ...s })));
     if (e2) throw e2;
   }
+}
+
+/* Lleva la misma selección a todos los costeos con esa referencia: el guardado y las órdenes en producción.
+   Las órdenes finalizadas no se tocan, para no cambiar la historia. */
+async function sincronizarCosteos(referencia, clienteId, seleccion, exceptoId) {
+  const ref = String(referencia || '').trim();
+  if (!ref) return 0;
+  const { data, error } = await sb.from('costeos').select('id, cliente_id, referencia, orden_id, ordenes(estado, cliente_id)').ilike('referencia', ref);
+  if (error) throw error;
+  const destino = (data || []).filter(c => {
+    if (c.id === exceptoId || normalizar(c.referencia) !== normalizar(ref)) return false;
+    if (c.orden_id) return c.ordenes?.estado === 'produccion' && (!clienteId || c.ordenes?.cliente_id === clienteId);
+    return !c.cliente_id || !clienteId || c.cliente_id === clienteId;
+  });
+  for (const c of destino) await guardarSeleccionCosteo(c.id, seleccion);
+  return destino.length;
+}
+
+/* Cotización en PDF: operaciones sin costos, solo el precio a cobrar */
+function pedirDatosCotizacion(deberia, alGenerar) {
+  const m = abrirModal('Cotización en PDF', `
+    <div class="fila"><div><label>Precio por prenda</label><input id="qPrecio" inputmode="numeric" value="${numero(deberia)}"></div>
+    <div><label>Cantidad (opcional)</label><input id="qCant" inputmode="numeric" placeholder="Ej: 200"></div></div>
+    <div class="fila"><div><label>Válida por (días)</label><input id="qDias" inputmode="numeric" value="15"></div><div></div></div>
+    <div class="campo"><label>Notas (opcional)</label><textarea id="qNotas" rows="2" placeholder="Ej: La tela y los insumos los entrega la marca"></textarea></div>
+    <div id="qErr" class="err"></div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarModal()">Cancelar</button><button class="btn" id="qGen"><i class="ti ti-file-download"></i> Descargar PDF</button></div>`);
+  m.querySelector('#qGen').onclick = async () => {
+    const precio = leerNumero(m.querySelector('#qPrecio').value);
+    if (!precio) return (m.querySelector('#qErr').textContent = 'Escribe el precio por prenda');
+    const btn = m.querySelector('#qGen'); btn.disabled = true; btn.textContent = 'Generando...';
+    await alGenerar({ precio, cantidad: leerNumero(m.querySelector('#qCant').value), dias: leerNumero(m.querySelector('#qDias').value) || 15, notas: m.querySelector('#qNotas').value.trim() });
+    cerrarModal();
+  };
+}
+async function generarCotizacionPDF({ cliente, referencia, prenda, lineas, precio, cantidad, dias, notas }) {
+  const hoy = new Date();
+  const vence = new Date(); vence.setDate(vence.getDate() + dias);
+  const f = d => d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+  const bloque = (titulo, ls) => ls.length ? `<div style="margin-top:14px"><div style="font-weight:800;color:#1E40AF;font-size:15px;border-bottom:2px solid #1E40AF;padding-bottom:4px;margin-bottom:6px">${titulo}</div>
+    ${ls.map(l => `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #E3E8F2"><div style="width:150px;font-weight:700">${esc(l.proceso)}</div>
+      <div style="flex:1">${l.ops.map(o => esc(o.nombre) + (o.cantidad > 1 ? ` <span style="color:#4A5675">(x${numero(o.cantidad)})</span>` : '')).join(' · ')}</div></div>`).join('')}</div>` : '';
+  const div = document.createElement('div');
+  div.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;font-family:"Nunito Sans",Arial,sans-serif;color:#0F1E4D;font-size:14px';
+  div.innerHTML = `
+    <div style="background:#1E40AF;color:#fff;padding:26px 36px;display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:12px"><div style="width:46px;height:46px;border-radius:11px;background:#fff;color:#1E40AF;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:26px">M</div>
+      <div><div style="font-size:24px;font-weight:900;letter-spacing:1px">MAGLO</div><div style="font-size:13px;color:#DCE6FB">Confecciones</div></div></div>
+      <div style="text-align:right"><div style="font-size:26px;font-weight:900">COTIZACIÓN</div><div style="font-size:13px;color:#DCE6FB">${f(hoy)}</div></div>
+    </div>
+    <div style="padding:26px 36px">
+      <div style="display:flex;gap:16px">
+        <div style="flex:1;background:#EEF2FC;border-radius:10px;padding:12px 16px"><div style="font-size:12px;color:#4A5675;font-weight:700">CLIENTE</div><div style="font-size:17px;font-weight:800">${esc(cliente || '—')}</div></div>
+        <div style="flex:1;background:#EEF2FC;border-radius:10px;padding:12px 16px"><div style="font-size:12px;color:#4A5675;font-weight:700">REFERENCIA</div><div style="font-size:17px;font-weight:800">${esc(referencia || '—')}</div>${prenda ? `<div>${esc(prenda)}</div>` : ''}</div>
+      </div>
+      ${bloque('Operaciones de confección', lineas.filter(l => l.etapa === 'confeccion'))}
+      ${bloque('Terminación', lineas.filter(l => l.etapa === 'terminacion'))}
+      <div style="margin-top:22px;background:#1E40AF;color:#fff;border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:16px">Precio por prenda</div><div style="font-size:26px;font-weight:900">${pesos(precio)}</div></div>
+      ${cantidad ? `<div style="margin-top:8px;background:#E3F6FD;color:#005F86;border-radius:12px;padding:12px 20px;display:flex;justify-content:space-between"><div>${numero(cantidad)} unidades</div><div style="font-weight:900;font-size:18px">${pesos(precio * cantidad)}</div></div>` : ''}
+      ${notas ? `<div style="margin-top:16px"><b>Notas:</b> ${esc(notas)}</div>` : ''}
+      <div style="margin-top:22px;color:#4A5675;font-size:12px">Cotización válida hasta el ${f(vence)}.</div>
+    </div>`;
+  document.body.appendChild(div);
+  try {
+    const canvas = await html2canvas(div, { scale: 2, backgroundColor: '#ffffff' });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+    const w = pdf.internal.pageSize.getWidth(), h = canvas.height * w / canvas.width;
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, w, h);
+    pdf.save(`Cotizacion ${referencia || ''} ${cliente || ''}`.trim().replace(/\s+/g, ' ') + '.pdf');
+  } catch (e) { aviso('No se pudo crear el PDF', true); }
+  div.remove();
 }
