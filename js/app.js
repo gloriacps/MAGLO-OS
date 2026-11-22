@@ -94,8 +94,10 @@ function abrirModal(titulo, html, { ancho } = {}) {
   const f = document.createElement('div');
   f.className = 'modal-fondo';
   f.id = 'modalFondo';
-  f.innerHTML = `<div class="modal" ${ancho ? `style="max-width:${ancho}px"` : ''}><h2>${titulo}</h2>${html}</div>`;
-  f.addEventListener('mousedown', e => { if (e.target === f) cerrarModal(); });
+  // La ventana solo se cierra con Cancelar, Guardar o la X (no al hacer clic por fuera), para no perder lo escrito
+  f.innerHTML = `<div class="modal" ${ancho ? `style="max-width:${ancho}px"` : ''}>
+    <div class="entre" style="margin-bottom:16px"><h2 style="margin:0">${titulo}</h2>
+    <button class="icono-btn" type="button" title="Cerrar" onclick="cerrarModal()"><i class="ti ti-x"></i></button></div>${html}</div>`;
   document.body.appendChild(f);
   const primero = f.querySelector('input,select,textarea');
   if (primero) setTimeout(() => primero.focus(), 50);
