@@ -55,6 +55,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--rey);box
 .opciones{display:flex;gap:10px;flex-wrap:wrap}
 .opcion{flex:1;min-width:150px;border:2px solid var(--borde);border-radius:12px;padding:12px;cursor:pointer;text-align:center;font-weight:700;background:#fff}
 .opcion.sel{border-color:var(--rey);background:var(--rey-claro);color:var(--rey-osc)}
+.opcion.sino{min-width:76px;padding:6px 12px;flex:0 0 auto}
+.opcion.si-on{background:var(--rey);border-color:var(--rey);color:#fff}
+.opcion.no-on{background:#EEF0F4;border-color:#B8C0D0;color:#4A5675}
 .opcion small{display:block;font-weight:400;color:var(--texto2);font-size:13px}
 
 /* Tablas */

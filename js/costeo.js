@@ -25,7 +25,7 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
   const abiertos = new Set(['confeccion']);
   const filtros = {};
 
-  if (seleccion) seleccion.forEach(s => sel.set(s.operacion_id, Number(s.cantidad)));
+  if (seleccion && seleccion.length) seleccion.forEach(s => sel.set(s.operacion_id, Number(s.cantidad)));
   else {
     // Nuevo: terminación, hilos y unida de pretina vienen marcados
     D.procesos.filter(p => p.etapa === 'terminacion' || p.nombre === 'Unida de pretina')
@@ -105,8 +105,8 @@ function crearEditorCosteo(cont, D, seleccion, alCambiar) {
     return `<div class="entre" style="padding:6px 0;border-bottom:1px solid var(--borde)">
       <span>${esc(o.nombre)} <span class="muted">${pesos(o.precio)}</span></span>
       <span class="opciones" style="flex-wrap:nowrap">
-        <div class="opcion ${si ? 'sel' : ''}" data-sino="${o.id}" data-v="1" style="min-width:70px;padding:6px 12px">Sí</div>
-        <div class="opcion ${!si ? 'sel' : ''}" data-sino="${o.id}" data-v="0" style="min-width:70px;padding:6px 12px">No</div>
+        <div class="opcion sino ${si ? 'si-on' : ''}" data-sino="${o.id}" data-v="1">${si ? '<i class="ti ti-check"></i> ' : ''}Sí</div>
+        <div class="opcion sino ${!si ? 'no-on' : ''}" data-sino="${o.id}" data-v="0">No</div>
       </span></div>`;
   }
 
